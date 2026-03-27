@@ -4,6 +4,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { allowBrowserOrigin } from './cors.util';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -14,7 +15,7 @@ async function bootstrap() {
   app.use(helmet({ contentSecurityPolicy: false }));
 
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: allowBrowserOrigin,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

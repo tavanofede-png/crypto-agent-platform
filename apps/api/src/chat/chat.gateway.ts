@@ -13,6 +13,7 @@ import { Logger, UseGuards } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ChatService } from './chat.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { allowBrowserOrigin } from '../cors.util';
 
 interface AuthenticatedSocket extends Socket {
   userId: string;
@@ -27,7 +28,7 @@ interface SendMessagePayload {
 
 @WebSocketGateway({
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: allowBrowserOrigin,
     credentials: true,
   },
   namespace: '/chat',

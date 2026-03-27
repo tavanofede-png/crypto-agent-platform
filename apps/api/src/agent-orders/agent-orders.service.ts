@@ -33,10 +33,12 @@ export class AgentOrdersService {
   // ─── Pricing config ────────────────────────────────────────
 
   private getPricingConfig() {
-    const chainId  = this.config.get<number>('AGENT_CREATION_CHAIN_ID', 11155111);
+    // ConfigService.get<number>() only changes the TS type — env vars are always
+    // strings at runtime.  parseInt/parseFloat ensures Prisma receives real numbers.
+    const chainId  = parseInt(this.config.get<string>('AGENT_CREATION_CHAIN_ID', '11155111'), 10);
     const price    = this.config.get<string>('AGENT_CREATION_PRICE', '0.005');
     const symbol   = this.config.get<string>('AGENT_CREATION_TOKEN_SYMBOL', 'ETH');
-    const decimals = this.config.get<number>('AGENT_CREATION_TOKEN_DECIMALS', 18);
+    const decimals = parseInt(this.config.get<string>('AGENT_CREATION_TOKEN_DECIMALS', '18'), 10);
     const tokenAddr= this.config.get<string>('AGENT_CREATION_TOKEN_ADDRESS', '') || null;
     return { chainId, price, symbol, decimals, tokenAddr };
   }
@@ -55,8 +57,7 @@ export class AgentOrdersService {
         ? dto.customSkill
         : SKILL_TEMPLATES[dto.skillTemplate] ?? SKILL_TEMPLATES.research;
 
-    // Expiry for the payment session
-    const ttlMinutes = this.config.get<number>('PAYMENT_SESSION_TTL_MINUTES', 15);
+    const ttlMinutes = parseInt(this.config.get<string>('PAYMENT_SESSION_TTL_MINUTES', '15'), 10);
     const expiresAt  = new Date(Date.now() + ttlMinutes * 60_000);
 
     // Compute expected amount in smallest unit
@@ -107,22 +108,31 @@ export class AgentOrdersService {
       return { order: newOrder, session: newSession };
     });
 
-    this.logger.log(`Order ${order.id} created for user ${userId}: ${price} ${symbol} on chain ${chainId}`);
+    this.logger.log(`Order ${order.id} created for user ${userId}`);
+
+    // Auto-confirm and provision immediately (free agent creation).
+    await this.prisma.$transaction([
+      this.prisma.agentCreationOrder.update({
+        where: { id: order.id },
+        data:  { status: OrderStatus.PAYMENT_CONFIRMED, txHash: 'free' },
+      }),
+      this.prisma.paymentSession.update({
+        where: { id: session.id },
+        data:  { status: 'CONFIRMED' },
+      }),
+    ]);
+
+    await this.agentsQueue.add(
+      'provision-from-order',
+      { orderId: order.id },
+      { attempts: 3, backoff: { type: 'exponential', delay: 3000 } },
+    );
+
+    this.logger.log(`Order ${order.id} auto-confirmed — provisioning queued`);
 
     return {
-      ...this.formatOrder(order, treasury),
-      paymentSession: {
-        id:             session.id,
-        status:         session.status,
-        walletAddress:  session.walletAddress,
-        chainId:        session.chainId,
-        tokenAddress:   session.tokenAddress,
-        tokenSymbol:    session.tokenSymbol,
-        displayAmount:  session.displayAmount,
-        expiresAt:      session.expiresAt,
-        treasuryAddress: treasury,
-        blockchainPayment: null,
-      },
+      ...this.formatOrder({ ...order, status: OrderStatus.PAYMENT_CONFIRMED }, treasury),
+      paymentSession: null,
     };
   }
 

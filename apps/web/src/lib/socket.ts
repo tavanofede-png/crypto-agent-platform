@@ -1,6 +1,19 @@
 import { io, Socket } from 'socket.io-client';
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001';
+/** Base URL for Socket.IO (no path). Falls back to API URL so prod works if only NEXT_PUBLIC_API_URL is set. */
+function resolveSocketBaseUrl(): string {
+  const raw =
+    process.env.NEXT_PUBLIC_WS_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    'http://localhost:3001';
+  let base = raw.trim().replace(/\/$/, '');
+  if (base.endsWith('/api')) {
+    base = base.slice(0, -4);
+  }
+  return base;
+}
+
+const WS_URL = resolveSocketBaseUrl();
 
 let socket: Socket | null = null;
 

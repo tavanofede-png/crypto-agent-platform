@@ -8,11 +8,6 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle,
-  Clock,
-  ShieldCheck,
-  Copy,
-  ExternalLink,
-  ArrowRight,
 } from 'lucide-react';
 import { agentOrdersApi } from '@/lib/api';
 import { cn } from '@repo/ui';
@@ -27,327 +22,165 @@ const MODELS = [
 ];
 
 const SKILL_TEMPLATES = [
-  { value: 'research', label: 'Research Agent',      description: 'Deep dives into crypto markets and DeFi protocols' },
-  { value: 'trading',  label: 'Trading Assistant',   description: 'Technical analysis and trade setups' },
-  { value: 'coding',   label: 'Coding Agent',        description: 'Smart contract and dApp development' },
-  { value: 'custom',   label: 'Custom',              description: 'Write your own SKILL.md from scratch' },
+  { value: 'research', label: 'Research Agent',    description: 'Deep dives into crypto markets and DeFi protocols' },
+  { value: 'trading',  label: 'Trading Assistant', description: 'Technical analysis and trade setups' },
+  { value: 'coding',   label: 'Coding Agent',      description: 'Smart contract and dApp development' },
+  { value: 'custom',   label: 'Custom',            description: 'Write your own SKILL.md from scratch' },
 ];
 
-const EXPLORER_TX_URL: Record<number, string> = {
-  1:        'https://etherscan.io/tx/',
-  137:      'https://polygonscan.com/tx/',
-  42161:    'https://arbiscan.io/tx/',
-  8453:     'https://basescan.org/tx/',
-  10:       'https://optimistic.etherscan.io/tx/',
-  11155111: 'https://sepolia.etherscan.io/tx/',
-  80002:    'https://amoy.polygonscan.com/tx/',
-};
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type OrderStatus =
-  | 'AWAITING_PAYMENT'
-  | 'PAYMENT_DETECTED'
-  | 'PAYMENT_CONFIRMED'
-  | 'PROVISIONING'
-  | 'COMPLETED'
-  | 'FAILED';
+type OrderStatus = 'AWAITING_PAYMENT' | 'PAYMENT_DETECTED' | 'PAYMENT_CONFIRMED' | 'PROVISIONING' | 'COMPLETED' | 'FAILED';
 
 interface OrderData {
   id: string;
   status: OrderStatus;
   agentName: string;
-  priceAmount: string;
-  priceToken: string;
-  priceChainId: number;
   agentId: string | null;
-  txHash: string | null;
   failedReason: string | null;
-  treasuryAddress: string;
-  paymentSession?: {
-    id: string;
-    status: string;
-    walletAddress: string;
-    chainId: number;
-    tokenAddress: string | null;
-    tokenSymbol: string;
-    displayAmount: string;
-    expiresAt: string;
-    treasuryAddress: string;
-    blockchainPayment?: {
-      txHash: string;
-      confirmations: number;
-      requiredConfirmations: number;
-    } | null;
-  } | null;
 }
 
 interface Props {
-  onClose: () => void;
+  onClose:   () => void;
   onCreated: () => void;
 }
 
-// ─── CopyButton helper ────────────────────────────────────────────────────────
+// ─── Provisioning progress modal ──────────────────────────────────────────────
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={async () => {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
-      className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700 rounded transition-colors"
-    >
-      {copied ? <CheckCircle className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-    </button>
-  );
-}
-
-// ─── ExpiryTimer helper ───────────────────────────────────────────────────────
-
-function ExpiryTimer({ expiresAt }: { expiresAt: string }) {
-  const [remaining, setRemaining] = useState('');
-  useEffect(() => {
-    const tick = () => {
-      const diff = new Date(expiresAt).getTime() - Date.now();
-      if (diff <= 0) { setRemaining('Expired'); return; }
-      const m = Math.floor(diff / 60_000);
-      const s = Math.floor((diff % 60_000) / 1000);
-      setRemaining(`${m}:${s.toString().padStart(2, '0')}`);
-    };
-    tick();
-    const id = setInterval(tick, 1_000);
-    return () => clearInterval(id);
-  }, [expiresAt]);
-  const urgent = new Date(expiresAt).getTime() - Date.now() < 3 * 60_000;
-  return <span className={cn('font-mono text-xs', urgent ? 'text-red-400' : 'text-zinc-500')}>{remaining}</span>;
-}
-
-// ─── Payment status config ────────────────────────────────────────────────────
-
-const STATUS_LABELS: Record<OrderStatus, { label: string; desc: string; color: string; icon: React.ReactNode }> = {
-  AWAITING_PAYMENT:  { label: 'Waiting for payment',      desc: 'Send the exact amount to the address below', color: 'text-amber-400',   icon: <Clock className="h-5 w-5" /> },
-  PAYMENT_DETECTED:  { label: 'Payment detected',         desc: 'Transaction found on-chain — collecting confirmations', color: 'text-blue-400', icon: <ShieldCheck className="h-5 w-5 animate-pulse" /> },
-  PAYMENT_CONFIRMED: { label: 'Payment confirmed',        desc: 'Setting up your agent workspace…',           color: 'text-blue-400',   icon: <Loader2 className="h-5 w-5 animate-spin" /> },
-  PROVISIONING:      { label: 'Provisioning agent…',      desc: 'Creating workspace and loading SKILL.md',    color: 'text-violet-400', icon: <Loader2 className="h-5 w-5 animate-spin" /> },
-  COMPLETED:         { label: 'Agent is ready!',          desc: 'Redirecting to your new agent…',             color: 'text-emerald-400',icon: <CheckCircle className="h-5 w-5" /> },
-  FAILED:            { label: 'Something went wrong',     desc: '',                                           color: 'text-red-400',    icon: <AlertCircle className="h-5 w-5" /> },
-};
-
-// ─── AgentPaymentModal ────────────────────────────────────────────────────────
-
-function AgentPaymentModal({
+function ProvisioningModal({
   orderId,
-  initialOrder,
+  agentName,
   onSuccess,
   onClose,
 }: {
-  orderId: string;
-  initialOrder: OrderData;
+  orderId:   string;
+  agentName: string;
   onSuccess: (agentId: string) => void;
-  onClose: () => void;
+  onClose:   () => void;
 }) {
-  const [order, setOrder] = useState<OrderData>(initialOrder);
-  const [mockLoading, setMockLoading] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [status, setStatus]   = useState<OrderStatus>('PAYMENT_CONFIRMED');
+  const [failed, setFailed]   = useState<string | null>(null);
+  const pollRef               = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = () => {
-    if (pollRef.current) clearInterval(pollRef.current);
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   };
 
   const poll = useCallback(async () => {
     try {
       const data: OrderData = await agentOrdersApi.get(orderId);
-      setOrder(data);
+      setStatus(data.status);
       if (data.status === 'COMPLETED' && data.agentId) {
         stopPolling();
-        setTimeout(() => onSuccess(data.agentId!), 800);
+        setTimeout(() => onSuccess(data.agentId!), 600);
       }
-      if (data.status === 'FAILED') stopPolling();
-    } catch { /* ignore transient fetch errors */ }
+      if (data.status === 'FAILED') {
+        stopPolling();
+        setFailed(data.failedReason ?? 'Provisioning failed');
+      }
+    } catch { /* ignore transient */ }
   }, [orderId, onSuccess]);
 
   useEffect(() => {
-    pollRef.current = setInterval(poll, 4000);
+    poll();
+    pollRef.current = setInterval(poll, 3000);
     return stopPolling;
   }, [poll]);
 
-  const handleMockPay = async () => {
-    setMockLoading(true);
-    try {
-      await agentOrdersApi.mockPay(orderId);
-      await poll();
-    } catch (err: any) {
-      alert(err.response?.data?.message ?? 'Mock pay failed');
-    } finally {
-      setMockLoading(false);
-    }
-  };
+  const STEPS: { key: OrderStatus[]; label: string }[] = [
+    { key: ['PAYMENT_CONFIRMED'],              label: 'Order confirmed' },
+    { key: ['PROVISIONING'],                   label: 'Creating workspace…' },
+    { key: ['COMPLETED'],                      label: 'Agent ready!' },
+  ];
 
-  const cfg     = STATUS_LABELS[order.status];
-  const session = order.paymentSession;
-  const isTerminal = order.status === 'COMPLETED' || order.status === 'FAILED';
-  const isDev   = process.env.NODE_ENV !== 'production';
-  const treasury = session?.treasuryAddress ?? order.treasuryAddress;
+  const currentIdx =
+    status === 'COMPLETED'         ? 2 :
+    status === 'PROVISIONING'      ? 1 : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-zinc-950/80 backdrop-blur-sm" onClick={isTerminal ? onClose : undefined} />
+      <div className="absolute inset-0 bg-zinc-950/80 backdrop-blur-sm" />
 
-      <div className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl">
+      <div className="relative w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-semibold text-white">Create Agent</h2>
-            <p className="text-xs text-zinc-500 truncate max-w-[220px]">{order.agentName}</p>
+            <h2 className="font-semibold text-white">Creating Agent</h2>
+            <p className="text-xs text-zinc-500 truncate max-w-[200px]">{agentName}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-5">
-          {/* Status banner */}
-          <div className={cn(
-            'flex items-center gap-3 p-3 rounded-xl border',
-            order.status === 'COMPLETED'  ? 'bg-emerald-500/10 border-emerald-500/20' :
-            order.status === 'FAILED'     ? 'bg-red-500/10 border-red-500/20' :
-                                            'bg-zinc-800/60 border-zinc-700/60',
-          )}>
-            <span className={cfg.color}>{cfg.icon}</span>
-            <div>
-              <div className={cn('text-sm font-medium', cfg.color)}>{cfg.label}</div>
-              <div className="text-xs text-zinc-500">
-                {order.status === 'FAILED' ? order.failedReason : cfg.desc}
-              </div>
-            </div>
-          </div>
-
-          {/* Payment details card */}
-          {order.status === 'AWAITING_PAYMENT' && session && (
-            <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-4 space-y-3">
-              {/* Amount */}
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-500">Amount</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-white text-lg">{order.priceAmount}</span>
-                  <span className="text-sm text-zinc-400 font-mono">{order.priceToken}</span>
-                </div>
-              </div>
-
-              {/* Treasury */}
-              <div>
-                <div className="text-xs text-zinc-500 mb-1">Send to</div>
-                <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2">
-                  <code className="text-xs text-zinc-200 font-mono flex-1 truncate">{treasury}</code>
-                  <CopyButton text={treasury} />
-                </div>
-              </div>
-
-              {/* From wallet */}
-              <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-                Must send from: <code className="font-mono">{session.walletAddress.slice(0, 10)}…{session.walletAddress.slice(-4)}</code>
-              </div>
-
-              {/* Expiry */}
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-zinc-500">Expires in</span>
-                <ExpiryTimer expiresAt={session.expiresAt} />
-              </div>
-            </div>
-          )}
-
-          {/* Confirmation progress */}
-          {(order.status === 'PAYMENT_DETECTED') && session?.blockchainPayment && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs text-zinc-400">
-                <span>Confirmations</span>
-                <span className="font-mono">{session.blockchainPayment.confirmations} / {session.blockchainPayment.requiredConfirmations}</span>
-              </div>
-              <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-violet-600 to-blue-500 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min((session.blockchainPayment.confirmations / session.blockchainPayment.requiredConfirmations) * 100, 100)}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Tx hash link */}
-          {order.txHash && (
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500">Transaction</span>
-              <a
-                href={`${EXPLORER_TX_URL[order.priceChainId] ?? 'https://etherscan.io/tx/'}${order.txHash}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 text-violet-400 hover:text-violet-300 font-mono"
-              >
-                {order.txHash.slice(0, 12)}…<ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          )}
-
-          {/* Dev mock pay button */}
-          {isDev && order.status === 'AWAITING_PAYMENT' && (
-            <button
-              onClick={handleMockPay}
-              disabled={mockLoading}
-              className="w-full flex items-center justify-center gap-2 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-zinc-200 text-sm font-medium py-2.5 rounded-xl transition-colors border border-dashed border-zinc-600"
-            >
-              {mockLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
-              Skip Payment (dev mode)
+          {failed && (
+            <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors">
+              <X className="h-4 w-4" />
             </button>
           )}
-
-          {/* Retry on failure */}
-          {order.status === 'FAILED' && (
-            <button
-              onClick={onClose}
-              className="w-full flex items-center justify-center gap-2 bg-zinc-700 hover:bg-zinc-600 text-white font-medium py-3 rounded-xl transition-colors"
-            >
-              Close and try again
-            </button>
-          )}
-
-          <p className="text-center text-xs text-zinc-600">
-            Payment is verified server-side. No manual confirmation needed.
-          </p>
         </div>
+
+        {failed ? (
+          <div className="flex gap-2 items-start bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-xl p-4">
+            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>{failed}</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {STEPS.map((step, i) => {
+              const done    = i < currentIdx;
+              const active  = i === currentIdx;
+              return (
+                <div key={i} className={cn(
+                  'flex items-center gap-3 p-3 rounded-xl border transition-all',
+                  done   ? 'border-emerald-500/20 bg-emerald-500/5'  :
+                  active ? 'border-violet-500/30 bg-violet-500/10'   :
+                           'border-zinc-800 bg-zinc-800/30 opacity-40',
+                )}>
+                  <div className="flex-shrink-0">
+                    {done ? (
+                      <CheckCircle className="h-4 w-4 text-emerald-400" />
+                    ) : active ? (
+                      <Loader2 className="h-4 w-4 text-violet-400 animate-spin" />
+                    ) : (
+                      <div className="h-4 w-4 rounded-full border border-zinc-600" />
+                    )}
+                  </div>
+                  <span className={cn(
+                    'text-sm font-medium',
+                    done ? 'text-emerald-300' : active ? 'text-violet-300' : 'text-zinc-500',
+                  )}>
+                    {step.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Main CreateAgentModal ────────────────────────────────────────────────────
+// ─── Main modal ───────────────────────────────────────────────────────────────
 
 export function CreateAgentModal({ onClose, onCreated }: Props) {
   const router = useRouter();
 
-  const [step, setStep]       = useState<'form' | 'payment'>('form');
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [orderId, setOrderId] = useState<string | null>(null);
-  const [orderData, setOrderData] = useState<OrderData | null>(null);
+  const [step, setStep]           = useState<'form' | 'provisioning'>('form');
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const [orderId, setOrderId]     = useState<string | null>(null);
+  const [agentName, setAgentName] = useState('');
 
   const [form, setForm] = useState({
-    name:         '',
-    description:  '',
-    framework:    'ZEROCLAW',
-    model:        'gpt-4o',
-    skillTemplate:'research',
-    customSkill:  '',
-    temperature:  0.7,
-    maxTokens:    2048,
+    name:          '',
+    description:   '',
+    framework:     'ZEROCLAW',
+    model:         'gpt-4o',
+    skillTemplate: 'research',
+    customSkill:   '',
+    temperature:   0.7,
+    maxTokens:     2048,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
     try {
       const order: OrderData = await agentOrdersApi.create({
         name:          form.name,
@@ -360,10 +193,10 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
         maxTokens:     form.maxTokens,
       });
       setOrderId(order.id);
-      setOrderData(order);
-      setStep('payment');
+      setAgentName(form.name);
+      setStep('provisioning');
     } catch (err: any) {
-      setError(err.response?.data?.message ?? 'Failed to create order');
+      setError(err.response?.data?.message ?? 'Failed to create agent');
     } finally {
       setLoading(false);
     }
@@ -374,20 +207,20 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
     router.push(`/agents/${agentId}`);
   };
 
-  // ── Payment step ───────────────────────────────────────────
+  // ── Provisioning progress view ─────────────────────────────
 
-  if (step === 'payment' && orderId && orderData) {
+  if (step === 'provisioning' && orderId) {
     return (
-      <AgentPaymentModal
+      <ProvisioningModal
         orderId={orderId}
-        initialOrder={orderData}
+        agentName={agentName}
         onSuccess={handleSuccess}
         onClose={onClose}
       />
     );
   }
 
-  // ── Form step ──────────────────────────────────────────────
+  // ── Form view ──────────────────────────────────────────────
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -540,9 +373,9 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
             className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors"
           >
             {loading ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Preparing…</>
+              <><Loader2 className="h-4 w-4 animate-spin" /> Creating…</>
             ) : (
-              <><Bot className="h-4 w-4" /> Continue to Payment</>
+              <><Bot className="h-4 w-4" /> Create Agent</>
             )}
           </button>
         </form>

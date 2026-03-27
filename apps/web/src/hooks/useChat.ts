@@ -30,10 +30,9 @@ export function useChat(agentId: string) {
     const socket = getSocket(token);
     socketRef.current = socket;
 
-    socket.on('connect', () => {
+    const onConnect = () => {
       setIsConnected(true);
       setError(null);
-      // Join the agent room, then restore the latest session with its history.
       socket.emit('join-agent', agentId);
       socket.emit(
         'new-session',
@@ -56,9 +55,22 @@ export function useChat(agentId: string) {
           }
         },
       );
-    });
+    };
 
-    socket.on('disconnect', () => setIsConnected(false));
+    const onDisconnect = () => setIsConnected(false);
+
+    const onConnectError = (err: Error) => {
+      setIsConnected(false);
+      setError(err.message || 'No se pudo conectar al chat');
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
+
+    if (socket.connected) {
+      onConnect();
+    }
 
     socket.on('message-start', ({ sessionId: sid }: { sessionId: string }) => {
       setIsStreaming(true);
@@ -125,8 +137,9 @@ export function useChat(agentId: string) {
     });
 
     return () => {
-      socket.off('connect');
-      socket.off('disconnect');
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
       socket.off('message-start');
       socket.off('message-chunk');
       socket.off('message-complete');
