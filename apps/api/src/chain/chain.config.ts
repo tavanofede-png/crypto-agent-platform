@@ -51,7 +51,9 @@ function parseTokenList(raw?: string): TokenConfig[] {
 }
 
 export function buildChainConfigs(config: ConfigService): ChainConfig[] {
-  const raw = config.get<string>('ACTIVE_CHAINS', '11155111'); // sepolia default for dev
+  // Default: no chains — API starts without requiring CHAIN_*_RPC_URL (e.g. Railway before you add an RPC).
+  // Set ACTIVE_CHAINS=11155111 (and CHAIN_11155111_RPC_URL) when you want on-chain payment detection.
+  const raw = config.get<string>('ACTIVE_CHAINS', '');
   const chainIds = raw
     .split(',')
     .map((s) => parseInt(s.trim(), 10))
