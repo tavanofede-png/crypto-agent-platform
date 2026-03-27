@@ -1,4 +1,5 @@
 import { createConfig, http } from 'wagmi';
+import type { Config } from 'wagmi';
 import { mainnet, sepolia, polygon, arbitrum, base } from 'wagmi/chains';
 import { injected, walletConnect } from 'wagmi/connectors';
 
@@ -10,7 +11,9 @@ const hasRealWcId =
   wcProjectId !== 'demo-project-id' &&
   wcProjectId.length > 8;
 
-export const wagmiConfig = createConfig({
+// Explicit `Config` type avoids TS declaration emit pulling in WalletConnect internals
+// (breaks `next build` / Docker with isolated module resolution).
+export const wagmiConfig: Config = createConfig({
   chains: [mainnet, sepolia, polygon, arbitrum, base],
   connectors: [
     // Catches MetaMask, Beexo, Rabby, Coinbase Wallet, and any EIP-1193 injected provider
@@ -29,4 +32,4 @@ export const wagmiConfig = createConfig({
   ssr: true,
 });
 
-export type WagmiConfig = typeof wagmiConfig;
+export type WagmiConfig = Config;

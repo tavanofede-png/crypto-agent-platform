@@ -28,9 +28,9 @@ En el dashboard del proyecto en Railway:
 
 Copia las variables que Railway genera (`DATABASE_URL`, `REDIS_URL` o equivalentes) — las usarás en api + worker.
 
-## 4. Crear cuatro servicios desde el mismo repositorio
+## 4. Crear servicios desde el mismo repositorio
 
-Para cada uno: **New** → **GitHub Repo** → mismo repo → **Settings**:
+Para cada uno: **New** → **Empty service** o **GitHub Repo** → mismo repo → **Settings**:
 
 | Servicio | Dockerfile path | Root directory |
 |----------|-----------------|----------------|
@@ -40,6 +40,19 @@ Para cada uno: **New** → **GitHub Repo** → mismo repo → **Settings**:
 | `runtime`| `apps/runtime/Dockerfile` | `/` |
 
 En **Build** → **Dockerfile path** (no Nixpacks si usas estos Dockerfiles).
+
+### CLI y `railway.toml` (monorepo)
+
+En la raíz del repo hay un `railway.toml` por defecto para **api**. Para desplegar **web** desde CLI:
+
+```bash
+cp infra/railway/railway.web.toml railway.toml
+railway service link web
+railway up
+cp infra/railway/railway.api.toml railway.toml   # restaurar para el próximo deploy del API
+```
+
+Variables mínimas del servicio **web** (build + runtime): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL` (URL pública del API, `https://`), `NEXT_PUBLIC_CHAIN_ID`. Luego **Generate domain** para el front y definí `FRONTEND_URL` en el **api** con la URL del web (CORS).
 
 ## 5. Variables de entorno (resumen)
 

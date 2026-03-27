@@ -1,8 +1,12 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   // Required for `docker build` — the web Dockerfile copies .next/standalone
   output: 'standalone',
+  // Monorepo: trace files from repo root so standalone output is usable in Docker
+  outputFileTracingRoot: path.join(__dirname, '../../'),
   transpilePackages: ['@repo/ui'],
   experimental: {
     optimizePackageImports: ['lucide-react', '@repo/ui'],
