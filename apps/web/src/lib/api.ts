@@ -61,7 +61,19 @@ export const agentsApi = {
 // ─── Payments ──────────────────────────────────────────────
 export const paymentsApi = {
   info: () => api.get('/payments/info').then((r) => r.data),
-  initiate: (data: any) => api.post('/payments/initiate', data).then((r) => r.data),
+
+  // Real blockchain payment sessions
+  createSession: (data: {
+    purpose: string;
+    chainId: number;
+    tokenAddress?: string;
+    amount?: string;
+  }) => api.post('/payments/session', data).then((r) => r.data),
+  getSession: (id: string) => api.get(`/payments/session/${id}`).then((r) => r.data),
+  getSessions: () => api.get('/payments/sessions').then((r) => r.data),
+  getHistory: () => api.get('/payments/history').then((r) => r.data),
+
+  // Legacy / mock
   confirm: (txHash: string, walletAddress: string) =>
     api.post('/payments/confirm', { txHash, walletAddress }).then((r) => r.data),
   mockConfirm: (amount: number) =>

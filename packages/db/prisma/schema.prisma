@@ -22,14 +22,6 @@ enum AgentFramework {
   ZEROCLAW
 }
 
-enum AgentModel {
-  GPT_4O         @map("gpt-4o")
-  GPT_4O_MINI    @map("gpt-4o-mini")
-  GPT_4_TURBO    @map("gpt-4-turbo")
-  CLAUDE_3_5     @map("claude-3-5-sonnet-20241022")
-  CLAUDE_3_HAIKU @map("claude-3-haiku-20240307")
-}
-
 enum TransactionStatus {
   PENDING
   CONFIRMED
@@ -43,7 +35,21 @@ enum LogLevel {
   ERROR
 }
 
-// ─── Models ──────────────────────────────────────────────────────────────────
+enum PaymentSessionStatus {
+  PENDING      // Waiting for user to send payment
+  DETECTED     // Transfer seen on-chain, awaiting confirmations
+  CONFIRMING   // Has some confirmations, not yet enough
+  CONFIRMED    // Required confirmations reached — credits/unlock applied
+  EXPIRED      // Session TTL elapsed before payment arrived
+  FAILED       // Payment detected but something went wrong processing it
+}
+
+enum PaymentPurpose {
+  AGENT_CREATION
+  CREDIT_TOPUP
+}
+
+// ─── Core models ─────────────────────────────────────────────────────────────
 
 model User {
   id            String        @id @default(cuid())
@@ -53,8 +59,10 @@ model User {
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
-  agents        Agent[]
-  transactions  Transaction[]
+  agents          Agent[]
+  transactions    Transaction[]
+  paymentSessions PaymentSession[]
+  creditLedger    CreditLedger[]
 
   @@map("users")
 }
@@ -127,6 +135,7 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
+// Legacy simple transaction (mock payment, keep for compat)
 model Transaction {
   id             String            @id @default(cuid())
   walletAddress  String            @map("wallet_address")
@@ -142,7 +151,6 @@ model Transaction {
   user           User              @relation(fields: [walletAddress], references: [walletAddress])
 
   @@index([walletAddress])
-  @@index([status])
   @@map("transactions")
 }
 
@@ -159,4 +167,98 @@ model AgentLog {
   @@index([agentId])
   @@index([createdAt])
   @@map("agent_logs")
+}
+
+// ─── Blockchain payment models ───────────────────────────────────────────────
+
+/// A payment intent created by the backend before the user sends crypto.
+/// Matches a user to an incoming transfer via their authenticated walletAddress.
+model PaymentSession {
+  id             String               @id @default(cuid())
+  userId         String               @map("user_id")
+  /// Wallet address of the authenticated user — used for transfer matching
+  walletAddress  String               @map("wallet_address")
+  chainId        Int                  @map("chain_id")
+  /// null = native token (ETH/MATIC/etc), non-null = ERC-20 contract address
+  tokenAddress   String?              @map("token_address")
+  tokenSymbol    String               @map("token_symbol")
+  tokenDecimals  Int                  @default(18) @map("token_decimals")
+  /// Amount in the token's smallest unit (wei for ETH, 6-decimal unit for USDC)
+  /// Stored as string to avoid bigint overflow in JSON
+  expectedAmount String               @map("expected_amount")
+  /// Human-readable display amount (e.g. "5.00")
+  displayAmount  String               @map("display_amount")
+  purpose        PaymentPurpose
+  status         PaymentSessionStatus @default(PENDING)
+  expiresAt      DateTime             @map("expires_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  blockchainPayment BlockchainPayment?
+
+  @@index([walletAddress, chainId, status])
+  @@index([status, expiresAt])
+  @@map("payment_sessions")
+}
+
+/// On-chain payment record created when a matching transfer is detected.
+model BlockchainPayment {
+  id             String    @id @default(cuid())
+  sessionId      String    @unique @map("session_id")
+  txHash         String    @unique @map("tx_hash")
+  blockNumber    Int       @map("block_number")
+  chainId        Int       @map("chain_id")
+  fromAddress    String    @map("from_address")
+  toAddress      String    @map("to_address")
+  /// null = native token transfer
+  tokenAddress   String?   @map("token_address")
+  /// Amount in smallest unit, stored as string
+  amountReceived String    @map("amount_received")
+  confirmations  Int       @default(0)
+  confirmedAt    DateTime? @map("confirmed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  session        PaymentSession @relation(fields: [sessionId], references: [id])
+
+  @@index([chainId, blockNumber])
+  @@index([chainId, txHash])
+  @@map("blockchain_payments")
+}
+
+/// Idempotency guard: one row per processed on-chain event.
+/// Unique constraint on (chainId, txHash, logIndex) prevents double-processing.
+/// logIndex is null for native ETH transfers (not log-based).
+model ProcessedChainEvent {
+  id          String   @id @default(cuid())
+  chainId     Int      @map("chain_id")
+  txHash      String   @map("tx_hash")
+  /// Log index within the transaction; null for native transfers
+  logIndex    Int?     @map("log_index")
+  eventType   String   @map("event_type")
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@unique([chainId, txHash, logIndex])
+  @@index([chainId, txHash])
+  @@map("processed_chain_events")
+}
+
+/// Immutable ledger of every credit change — debits (negative) and credits (positive).
+model CreditLedger {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  /// Positive = credit added, negative = credit spent
+  delta        Int
+  balanceAfter Int      @map("balance_after")
+  /// "payment_confirmed" | "agent_creation" | "admin_grant" | "refund"
+  reason       String
+  sessionId    String?  @map("session_id")
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("credit_ledger")
 }
