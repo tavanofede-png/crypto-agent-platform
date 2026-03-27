@@ -8,7 +8,6 @@ export const api = axios.create({
   timeout: 30000,
 });
 
-// Attach JWT from localStorage
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
     const token = localStorage.getItem('cap_token');
@@ -35,7 +34,7 @@ export const authApi = {
     api.get<{ nonce: string }>(`/auth/nonce/${address}`).then((r) => r.data),
   verify: (walletAddress: string, signature: string) =>
     api
-      .post<{ accessToken: string; user: { id: string; walletAddress: string; credits: number } }>(
+      .post<{ accessToken: string; user: { id: string; walletAddress: string } }>(
         '/auth/verify',
         { walletAddress, signature },
       )
@@ -45,38 +44,36 @@ export const authApi = {
 
 // ─── Agents ────────────────────────────────────────────────
 export const agentsApi = {
-  list: () => api.get('/agents').then((r) => r.data),
-  get: (id: string) => api.get(`/agents/${id}`).then((r) => r.data),
-  create: (data: any) => api.post('/agents', data).then((r) => r.data),
-  update: (id: string, data: any) => api.put(`/agents/${id}`, data).then((r) => r.data),
-  delete: (id: string) => api.delete(`/agents/${id}`).then((r) => r.data),
-  restart: (id: string) => api.post(`/agents/${id}/restart`).then((r) => r.data),
-  getLogs: (id: string, limit = 50) =>
-    api.get(`/agents/${id}/logs?limit=${limit}`).then((r) => r.data),
-  getSessions: (id: string) => api.get(`/agents/${id}/sessions`).then((r) => r.data),
-  getSessionMessages: (sessionId: string) =>
-    api.get(`/agents/sessions/${sessionId}/messages`).then((r) => r.data),
+  list:              ()           => api.get('/agents').then((r) => r.data),
+  get:               (id: string) => api.get(`/agents/${id}`).then((r) => r.data),
+  update:            (id: string, data: any) => api.put(`/agents/${id}`, data).then((r) => r.data),
+  delete:            (id: string) => api.delete(`/agents/${id}`).then((r) => r.data),
+  restart:           (id: string) => api.post(`/agents/${id}/restart`).then((r) => r.data),
+  getLogs:           (id: string, limit = 50) => api.get(`/agents/${id}/logs?limit=${limit}`).then((r) => r.data),
+  getSessions:       (id: string) => api.get(`/agents/${id}/sessions`).then((r) => r.data),
+  getSessionMessages:(sessionId: string) => api.get(`/agents/sessions/${sessionId}/messages`).then((r) => r.data),
 };
 
-// ─── Payments ──────────────────────────────────────────────
+// ─── Agent Creation Orders ─────────────────────────────────
+export interface CreateOrderForm {
+  name:         string;
+  description?: string;
+  framework:    string;
+  model:        string;
+  skillTemplate:string;
+  customSkill?: string;
+  temperature?: number;
+  maxTokens?:   number;
+}
+
+export const agentOrdersApi = {
+  create:  (data: CreateOrderForm)  => api.post('/agent-orders', data).then((r) => r.data),
+  get:     (id: string)             => api.get(`/agent-orders/${id}`).then((r) => r.data),
+  list:    ()                       => api.get('/agent-orders').then((r) => r.data),
+  mockPay: (id: string)             => api.post(`/agent-orders/${id}/mock-pay`).then((r) => r.data),
+};
+
+// ─── Payments info ─────────────────────────────────────────
 export const paymentsApi = {
   info: () => api.get('/payments/info').then((r) => r.data),
-
-  // Real blockchain payment sessions
-  createSession: (data: {
-    purpose: string;
-    chainId: number;
-    tokenAddress?: string;
-    amount?: string;
-  }) => api.post('/payments/session', data).then((r) => r.data),
-  getSession: (id: string) => api.get(`/payments/session/${id}`).then((r) => r.data),
-  getSessions: () => api.get('/payments/sessions').then((r) => r.data),
-  getHistory: () => api.get('/payments/history').then((r) => r.data),
-
-  // Legacy / mock
-  confirm: (txHash: string, walletAddress: string) =>
-    api.post('/payments/confirm', { txHash, walletAddress }).then((r) => r.data),
-  mockConfirm: (amount: number) =>
-    api.post('/payments/mock-confirm', { amount }).then((r) => r.data),
-  transactions: () => api.get('/payments/transactions').then((r) => r.data),
 };

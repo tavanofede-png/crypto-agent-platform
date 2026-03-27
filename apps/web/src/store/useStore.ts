@@ -6,7 +6,6 @@ import { persist } from 'zustand/middleware';
 export interface User {
   id: string;
   walletAddress: string;
-  credits: number;
 }
 
 export interface Agent {
@@ -28,7 +27,6 @@ interface AppState {
   isAuthenticated: boolean;
 
   setAuth: (user: User, token: string) => void;
-  updateUser: (user: Partial<User>) => void;
   logout: () => void;
 
   setAgents: (agents: Agent[]) => void;
@@ -51,11 +49,6 @@ export const useStore = create<AppState>()(
         }
         set({ user, token, isAuthenticated: true });
       },
-
-      updateUser: (updates) =>
-        set((state) => ({
-          user: state.user ? { ...state.user, ...updates } : null,
-        })),
 
       logout: () => {
         if (typeof window !== 'undefined') {
@@ -89,8 +82,8 @@ export const useStore = create<AppState>()(
     {
       name: 'cap-store',
       partialize: (state) => ({
-        user: state.user,
-        token: state.token,
+        user:            state.user,
+        token:           state.token,
         isAuthenticated: state.isAuthenticated,
       }),
     },

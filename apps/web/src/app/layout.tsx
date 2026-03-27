@@ -1,10 +1,13 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AppProviders } from '@/providers/AppProviders';
 
 export const metadata: Metadata = {
   title: 'Crypto Agent Platform',
   description: 'Create and manage AI agents powered by crypto payments',
+};
+
+export const viewport: Viewport = {
   themeColor: '#09090b',
 };
 

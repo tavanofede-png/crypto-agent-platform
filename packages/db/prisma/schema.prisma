@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Enums ───────────────────────────────────────────────────────────────────
+// ─── Enums ────────────────────────────────────────────────────────────────────
 
 enum AgentStatus {
   PROVISIONING
@@ -22,12 +22,6 @@ enum AgentFramework {
   ZEROCLAW
 }
 
-enum TransactionStatus {
-  PENDING
-  CONFIRMED
-  FAILED
-}
-
 enum LogLevel {
   DEBUG
   INFO
@@ -35,34 +29,37 @@ enum LogLevel {
   ERROR
 }
 
+/// Lifecycle of an agent-creation order, from form submission to live agent.
+enum OrderStatus {
+  AWAITING_PAYMENT   // Payment session created, waiting for transfer
+  PAYMENT_DETECTED   // Transfer seen on-chain, awaiting confirmations
+  PAYMENT_CONFIRMED  // Required confirmations reached
+  PROVISIONING       // Agent workspace being set up
+  COMPLETED          // Agent is live
+  FAILED             // Something went wrong (see failedReason)
+}
+
 enum PaymentSessionStatus {
   PENDING      // Waiting for user to send payment
   DETECTED     // Transfer seen on-chain, awaiting confirmations
   CONFIRMING   // Has some confirmations, not yet enough
-  CONFIRMED    // Required confirmations reached — credits/unlock applied
+  CONFIRMED    // Required confirmations reached
   EXPIRED      // Session TTL elapsed before payment arrived
   FAILED       // Payment detected but something went wrong processing it
 }
 
-enum PaymentPurpose {
-  AGENT_CREATION
-  CREDIT_TOPUP
-}
-
-// ─── Core models ─────────────────────────────────────────────────────────────
+// ─── Core models ──────────────────────────────────────────────────────────────
 
 model User {
-  id            String        @id @default(cuid())
-  walletAddress String        @unique @map("wallet_address")
-  nonce         String        @default(cuid())
-  credits       Int           @default(0)
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  id            String   @id @default(cuid())
+  walletAddress String   @unique @map("wallet_address")
+  nonce         String   @default(cuid())
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  agents          Agent[]
-  transactions    Transaction[]
-  paymentSessions PaymentSession[]
-  creditLedger    CreditLedger[]
+  agents              Agent[]
+  agentCreationOrders AgentCreationOrder[]
+  paymentSessions     PaymentSession[]
 
   @@map("users")
 }
@@ -86,6 +83,7 @@ model Agent {
   skill         Skill?
   chatSessions  ChatSession[]
   logs          AgentLog[]
+  creationOrder AgentCreationOrder?
 
   @@index([userId])
   @@index([status])
@@ -135,25 +133,6 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
-// Legacy simple transaction (mock payment, keep for compat)
-model Transaction {
-  id             String            @id @default(cuid())
-  walletAddress  String            @map("wallet_address")
-  txHash         String?           @unique @map("tx_hash")
-  amount         Float
-  token          String            @default("USDC")
-  chainId        Int               @default(1) @map("chain_id")
-  status         TransactionStatus @default(PENDING)
-  creditsAwarded Int               @default(0) @map("credits_awarded")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
-
-  user           User              @relation(fields: [walletAddress], references: [walletAddress])
-
-  @@index([walletAddress])
-  @@map("transactions")
-}
-
 model AgentLog {
   id        String   @id @default(cuid())
   agentId   String   @map("agent_id")
@@ -169,32 +148,70 @@ model AgentLog {
   @@map("agent_logs")
 }
 
-// ─── Blockchain payment models ───────────────────────────────────────────────
+// ─── Agent Creation Orders ────────────────────────────────────────────────────
 
-/// A payment intent created by the backend before the user sends crypto.
-/// Matches a user to an incoming transfer via their authenticated walletAddress.
+/// Central entity for the create-agent flow.
+/// Holds the agent config snapshot + tracks payment lifecycle.
+model AgentCreationOrder {
+  id            String         @id @default(cuid())
+  userId        String         @map("user_id")
+  status        OrderStatus    @default(AWAITING_PAYMENT)
+
+  // Agent config — stored so the agent can be provisioned after payment
+  agentName     String         @map("agent_name")
+  agentDescr    String?        @db.Text @map("agent_description")
+  framework     AgentFramework
+  model         String
+  skillTemplate String         @map("skill_template")
+  skillContent  String         @db.Text @map("skill_content")
+  temperature   Float          @default(0.7)
+  maxTokens     Int            @default(2048) @map("max_tokens")
+
+  // Pricing snapshot at order creation time
+  priceAmount   String         @map("price_amount")   // human-readable, e.g. "5.00"
+  priceToken    String         @map("price_token")    // e.g. "ETH" or "USDC"
+  priceChainId  Int            @map("price_chain_id")
+
+  // Outcome
+  agentId       String?        @unique @map("agent_id")
+  txHash        String?        @map("tx_hash")
+  failedReason  String?        @map("failed_reason")
+
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent         Agent?         @relation(fields: [agentId], references: [id])
+  paymentSession PaymentSession?
+
+  @@index([userId])
+  @@index([status])
+  @@map("agent_creation_orders")
+}
+
+// ─── Blockchain payment models ────────────────────────────────────────────────
+
+/// A payment intent created before the user sends crypto.
 model PaymentSession {
   id             String               @id @default(cuid())
   userId         String               @map("user_id")
-  /// Wallet address of the authenticated user — used for transfer matching
   walletAddress  String               @map("wallet_address")
   chainId        Int                  @map("chain_id")
-  /// null = native token (ETH/MATIC/etc), non-null = ERC-20 contract address
   tokenAddress   String?              @map("token_address")
   tokenSymbol    String               @map("token_symbol")
   tokenDecimals  Int                  @default(18) @map("token_decimals")
-  /// Amount in the token's smallest unit (wei for ETH, 6-decimal unit for USDC)
-  /// Stored as string to avoid bigint overflow in JSON
   expectedAmount String               @map("expected_amount")
-  /// Human-readable display amount (e.g. "5.00")
   displayAmount  String               @map("display_amount")
-  purpose        PaymentPurpose
   status         PaymentSessionStatus @default(PENDING)
   expiresAt      DateTime             @map("expires_at")
   createdAt      DateTime             @default(now()) @map("created_at")
   updatedAt      DateTime             @updatedAt @map("updated_at")
 
+  // Link to the order this session is paying for
+  orderId        String?              @unique @map("order_id")
+
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order             AgentCreationOrder? @relation(fields: [orderId], references: [id])
   blockchainPayment BlockchainPayment?
 
   @@index([walletAddress, chainId, status])
@@ -211,9 +228,7 @@ model BlockchainPayment {
   chainId        Int       @map("chain_id")
   fromAddress    String    @map("from_address")
   toAddress      String    @map("to_address")
-  /// null = native token transfer
   tokenAddress   String?   @map("token_address")
-  /// Amount in smallest unit, stored as string
   amountReceived String    @map("amount_received")
   confirmations  Int       @default(0)
   confirmedAt    DateTime? @map("confirmed_at")
@@ -226,14 +241,11 @@ model BlockchainPayment {
   @@map("blockchain_payments")
 }
 
-/// Idempotency guard: one row per processed on-chain event.
-/// Unique constraint on (chainId, txHash, logIndex) prevents double-processing.
-/// logIndex is null for native ETH transfers (not log-based).
+/// Idempotency guard: prevents double-processing the same on-chain event.
 model ProcessedChainEvent {
   id          String   @id @default(cuid())
   chainId     Int      @map("chain_id")
   txHash      String   @map("tx_hash")
-  /// Log index within the transaction; null for native transfers
   logIndex    Int?     @map("log_index")
   eventType   String   @map("event_type")
   processedAt DateTime @default(now()) @map("processed_at")
@@ -241,24 +253,4 @@ model ProcessedChainEvent {
   @@unique([chainId, txHash, logIndex])
   @@index([chainId, txHash])
   @@map("processed_chain_events")
-}
-
-/// Immutable ledger of every credit change — debits (negative) and credits (positive).
-model CreditLedger {
-  id           String   @id @default(cuid())
-  userId       String   @map("user_id")
-  /// Positive = credit added, negative = credit spent
-  delta        Int
-  balanceAfter Int      @map("balance_after")
-  /// "payment_confirmed" | "agent_creation" | "admin_grant" | "refund"
-  reason       String
-  sessionId    String?  @map("session_id")
-  metadata     Json?
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  user         User     @relation(fields: [userId], references: [id])
-
-  @@index([userId])
-  @@index([createdAt])
-  @@map("credit_ledger")
 }

@@ -1,84 +1,54 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { useAccount, useConnect, useDisconnect, useSignMessage } from 'wagmi';
 import { authApi } from '@/lib/api';
 import { useStore } from '@/store/useStore';
 
 export function useWallet() {
-  const { address, isConnected, chain } = useAccount();
-  const { connect, connectors, isPending: isConnecting } = useConnect();
-  const { disconnect } = useDisconnect();
-  const { signMessageAsync } = useSignMessage();
   const { setAuth, logout, user, isAuthenticated } = useStore();
-
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const connectAndAuth = useCallback(
-    async (connectorId?: string) => {
+  /** Sign in with a Beexo wallet address — no browser extension needed. */
+  const signIn = useCallback(
+    async (walletAddress: string) => {
+      setIsAuthenticating(true);
       setError(null);
 
       try {
-        const connector =
-          connectors.find((c) => c.id === connectorId) ?? connectors[0];
-
-        if (!connector) {
-          throw new Error('No wallet connector available');
-        }
-
-        connect({ connector });
+        const { nonce } = await authApi.getNonce(walletAddress);
+        // Backend accepts signatures starting with "0xmock" in dev mode
+        const signature = `0xmock-beexo-${nonce}-${Date.now().toString(16)}`;
+        const { accessToken, user: authedUser } = await authApi.verify(
+          walletAddress,
+          signature,
+        );
+        setAuth(authedUser, accessToken);
       } catch (err: any) {
-        setError(err.message);
+        setError(
+          err.response?.data?.message ?? err.message ?? 'Authentication failed',
+        );
+      } finally {
+        setIsAuthenticating(false);
       }
     },
-    [connect, connectors],
+    [setAuth],
   );
 
-  const authenticate = useCallback(async () => {
-    if (!address) return;
-    setIsAuthenticating(true);
-    setError(null);
-
-    try {
-      const { nonce } = await authApi.getNonce(address);
-      const message = `Sign in to Crypto Agent Platform\n\nNonce: ${nonce}`;
-
-      let signature: string;
-      try {
-        signature = await signMessageAsync({ message });
-      } catch {
-        // Dev mode: use mock signature if wallet refuses
-        signature = `0xmock${Date.now().toString(16)}`;
-        console.warn('Using mock signature (dev mode)');
-      }
-
-      const { accessToken, user } = await authApi.verify(address, signature);
-      setAuth(user, accessToken);
-    } catch (err: any) {
-      setError(err.response?.data?.message ?? err.message ?? 'Authentication failed');
-    } finally {
-      setIsAuthenticating(false);
-    }
-  }, [address, signMessageAsync, setAuth]);
-
-  const handleDisconnect = useCallback(() => {
-    disconnect();
+  const disconnect = useCallback(() => {
     logout();
-  }, [disconnect, logout]);
+  }, [logout]);
 
   return {
-    address,
-    isConnected,
+    address: user?.walletAddress ?? null,
     isAuthenticated,
-    isConnecting,
     isAuthenticating,
     user,
-    chain,
-    connectors,
     error,
-    connectAndAuth,
-    authenticate,
-    disconnect: handleDisconnect,
+    signIn,
+    disconnect,
+    // Legacy aliases used by Navbar and other components
+    isConnected: isAuthenticated,
+    isConnecting: isAuthenticating,
   };
 }

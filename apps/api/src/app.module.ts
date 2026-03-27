@@ -6,6 +6,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { AgentsModule } from './agents/agents.module';
+import { AgentOrdersModule } from './agent-orders/agent-orders.module';
 import { ChatModule } from './chat/chat.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ChainModule } from './chain/chain.module';
@@ -51,6 +52,7 @@ import { ChainModule } from './chain/chain.module';
     PrismaModule,
     AuthModule,
     AgentsModule,
+    AgentOrdersModule,
     ChatModule,
     PaymentsModule,
   ],

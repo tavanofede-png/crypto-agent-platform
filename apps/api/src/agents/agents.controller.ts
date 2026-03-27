@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Post,
   Put,
   Delete,
   Body,
@@ -13,10 +12,10 @@ import {
   HttpStatus,
   ParseIntPipe,
   DefaultValuePipe,
+  Post,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AgentsService } from './agents.service';
-import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 
 @Controller('agents')
@@ -27,11 +26,6 @@ export class AgentsController {
   @Get()
   findAll(@Request() req: any) {
     return this.agentsService.findAll(req.user.id);
-  }
-
-  @Post()
-  create(@Body() dto: CreateAgentDto, @Request() req: any) {
-    return this.agentsService.create(dto, req.user.id);
   }
 
   @Get(':id')

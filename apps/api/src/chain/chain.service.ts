@@ -19,7 +19,6 @@ import {
   PublicClient,
   Address,
   Hash,
-  Log,
 } from 'viem';
 import {
   mainnet,
@@ -203,31 +202,34 @@ export class ChainService implements OnModuleInit {
   ): Promise<ERC20TransferInfo[]> {
     const client = this.getClient(chainId);
 
-    let logs: Log[];
     try {
-      logs = await client.getLogs({
+      // Let TypeScript infer the fully-typed Log (with decoded args) from getLogs.
+      const logs = await client.getLogs({
         address: tokenAddress,
         event: ERC20_TRANSFER_EVENT,
-        args: { to: toAddress },
+        args: { to: toAddress } as any,
         fromBlock,
         toBlock,
       });
+
+      return logs
+        .filter((log) => log.transactionHash && log.blockNumber !== null)
+        .map((log) => {
+          const args = (log as any).args ?? {};
+          return {
+            txHash: log.transactionHash as Hash,
+            blockNumber: Number(log.blockNumber),
+            logIndex: log.logIndex ?? 0,
+            fromAddress: args.from as string,
+            toAddress: args.to as string,
+            tokenAddress: log.address,
+            value: args.value as bigint,
+          };
+        });
     } catch (err: any) {
       this.logger.warn(`getLogs on chain ${chainId} failed: ${err.message}`);
       return [];
     }
-
-    return logs
-      .filter((log) => log.args && log.transactionHash && log.blockNumber !== null)
-      .map((log) => ({
-        txHash: log.transactionHash as Hash,
-        blockNumber: Number(log.blockNumber),
-        logIndex: log.logIndex ?? 0,
-        fromAddress: (log.args as any).from as string,
-        toAddress: (log.args as any).to as string,
-        tokenAddress: log.address,
-        value: (log.args as any).value as bigint,
-      }));
   }
 
   // ─── Transaction verification ──────────────────────────────

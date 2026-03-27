@@ -21,28 +21,23 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
-  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChainService } from '../chain/chain.service';
 import { CreatePaymentSessionDto } from './dto/create-session.dto';
-import { PaymentPurpose, PaymentSessionStatus } from '@prisma/client';
-
-const DEFAULT_AMOUNTS: Record<PaymentPurpose, string> = {
-  AGENT_CREATION: '5.00',
-  CREDIT_TOPUP: '10.00',
-};
-
-const CREDITS_AWARDED: Record<PaymentPurpose, (amount: string) => number> = {
-  AGENT_CREATION: () => 500,
-  CREDIT_TOPUP: (amount) => Math.floor(parseFloat(amount) * 100),
-};
 
 @Injectable()
 export class PaymentSessionService {
   private readonly logger = new Logger(PaymentSessionService.name);
   private readonly sessionTtlMinutes: number;
+
+  // Injected lazily to avoid circular dependency (AgentOrders → ChainService ← Payments)
+  private agentOrdersService: any;
+
+  setAgentOrdersService(svc: any) {
+    this.agentOrdersService = svc;
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -62,30 +57,9 @@ export class PaymentSessionService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    // Enforce one active session per user per chain (prevents spam)
-    const existing = await this.prisma.paymentSession.findFirst({
-      where: {
-        userId,
-        chainId: dto.chainId,
-        purpose: dto.purpose,
-        status: 'PENDING',
-        expiresAt: { gt: new Date() },
-      },
-    });
-    if (existing) {
-      // Return existing session with full details — same shape as a newly created one
-      const chainCfg = this.chainService.getChainConfig(existing.chainId);
-      return {
-        ...this.formatSession(existing),
-        treasuryAddress: this.chainService.getTreasuryAddress(),
-        chainName: chainCfg.name,
-      };
-    }
-
     const chainCfg = this.chainService.getChainConfig(dto.chainId);
-    const treasury = this.chainService.getTreasuryAddress();
+    const treasury  = this.chainService.getTreasuryAddress();
 
-    // Resolve token info
     let tokenSymbol: string;
     let tokenDecimals: number;
     let tokenAddress: string | null = null;
@@ -97,19 +71,18 @@ export class PaymentSessionService {
           `Token ${dto.tokenAddress} is not supported on chain ${dto.chainId}`,
         );
       }
-      tokenSymbol = tokenCfg.symbol;
+      tokenSymbol  = tokenCfg.symbol;
       tokenDecimals = tokenCfg.decimals;
-      tokenAddress = this.chainService.checksumAddress(dto.tokenAddress);
+      tokenAddress  = this.chainService.checksumAddress(dto.tokenAddress);
     } else {
-      tokenSymbol = chainCfg.nativeSymbol;
+      tokenSymbol  = chainCfg.nativeSymbol;
       tokenDecimals = chainCfg.nativeDecimals;
     }
 
-    const displayAmount = dto.amount ?? DEFAULT_AMOUNTS[dto.purpose];
+    const displayAmount  = dto.amount ?? '5.00';
     const expectedAmount = this.chainService
       .toSmallestUnit(displayAmount, tokenDecimals)
       .toString();
-
     const expiresAt = new Date(Date.now() + this.sessionTtlMinutes * 60_000);
 
     const session = await this.prisma.paymentSession.create({
@@ -122,7 +95,6 @@ export class PaymentSessionService {
         tokenDecimals,
         expectedAmount,
         displayAmount,
-        purpose: dto.purpose,
         expiresAt,
       },
     });
@@ -286,55 +258,35 @@ export class PaymentSessionService {
   async markConfirmed(sessionId: string, paymentId: string) {
     const session = await this.prisma.paymentSession.findUnique({
       where: { id: sessionId },
-      include: { user: true },
     });
 
     if (!session) throw new NotFoundException('Session not found');
     if (session.status === 'CONFIRMED') return; // idempotent
 
-    const creditsToAward = CREDITS_AWARDED[session.purpose](session.displayAmount);
+    const payment = await this.prisma.blockchainPayment.findUnique({
+      where: { id: paymentId },
+    });
 
     await this.prisma.$transaction(async (tx) => {
-      // 1. Confirm the payment record
       await tx.blockchainPayment.update({
         where: { id: paymentId },
         data: { confirmedAt: new Date() },
       });
-
-      // 2. Mark session confirmed
       await tx.paymentSession.update({
         where: { id: sessionId },
         data: { status: 'CONFIRMED' },
       });
-
-      // 3. Award credits
-      const newBalance = session.user.credits + creditsToAward;
-      await tx.user.update({
-        where: { id: session.userId },
-        data: { credits: { increment: creditsToAward } },
-      });
-
-      // 4. Append immutable ledger entry
-      await tx.creditLedger.create({
-        data: {
-          userId: session.userId,
-          delta: creditsToAward,
-          balanceAfter: newBalance,
-          reason: 'payment_confirmed',
-          sessionId,
-          metadata: {
-            purpose: session.purpose,
-            chainId: session.chainId,
-            tokenSymbol: session.tokenSymbol,
-            displayAmount: session.displayAmount,
-          },
-        },
-      });
     });
 
-    this.logger.log(
-      `Session ${sessionId} confirmed — +${creditsToAward} credits to user ${session.userId}`,
-    );
+    // Trigger agent order provisioning if linked
+    if (session.orderId && this.agentOrdersService) {
+      await this.agentOrdersService.onPaymentConfirmed(
+        session.orderId,
+        payment?.txHash ?? '',
+      );
+    }
+
+    this.logger.log(`Session ${sessionId} confirmed — order ${session.orderId ?? 'standalone'}`);
   }
 
   async expireStaleSessionsJob() {
@@ -355,19 +307,19 @@ export class PaymentSessionService {
 
   private formatSession(session: any) {
     return {
-      id: session.id,
-      userId: session.userId,
-      walletAddress: session.walletAddress,
-      chainId: session.chainId,
-      tokenAddress: session.tokenAddress,
-      tokenSymbol: session.tokenSymbol,
-      tokenDecimals: session.tokenDecimals,
+      id:             session.id,
+      userId:         session.userId,
+      walletAddress:  session.walletAddress,
+      chainId:        session.chainId,
+      tokenAddress:   session.tokenAddress,
+      tokenSymbol:    session.tokenSymbol,
+      tokenDecimals:  session.tokenDecimals,
       expectedAmount: session.expectedAmount,
-      displayAmount: session.displayAmount,
-      purpose: session.purpose,
-      status: session.status,
-      expiresAt: session.expiresAt,
-      createdAt: session.createdAt,
+      displayAmount:  session.displayAmount,
+      status:         session.status,
+      orderId:        session.orderId,
+      expiresAt:      session.expiresAt,
+      createdAt:      session.createdAt,
     };
   }
 }

@@ -16,6 +16,8 @@ export class AgentProcessor {
     switch (job.name) {
       case 'provision':
         return this.handleProvision(job);
+      case 'provision-from-order':
+        return this.handleProvisionFromOrder(job);
       case 'delete':
         return this.handleDelete(job);
       case 'restart':
@@ -23,6 +25,59 @@ export class AgentProcessor {
       default:
         throw new Error(`Unknown job type: ${job.name}`);
     }
+  }
+
+  private async handleProvisionFromOrder(job: Job<{ orderId: string }>) {
+    const { orderId } = job.data;
+    console.log(`Provisioning from order ${orderId}...`);
+
+    const order = await this.prisma.agentCreationOrder.findUnique({
+      where: { id: orderId },
+    });
+    if (!order) throw new Error(`Order ${orderId} not found`);
+
+    // Create the agent record if not already done
+    let agentId = order.agentId;
+    if (!agentId) {
+      const agent = await this.prisma.$transaction(async (tx) => {
+        const newAgent = await tx.agent.create({
+          data: {
+            userId:      order.userId,
+            name:        order.agentName,
+            description: order.agentDescr ?? undefined,
+            framework:   order.framework,
+            model:       order.model,
+            temperature: order.temperature,
+            maxTokens:   order.maxTokens,
+            status:      'PROVISIONING',
+          },
+        });
+        await tx.skill.create({
+          data: {
+            agentId:  newAgent.id,
+            content:  order.skillContent,
+            template: order.skillTemplate,
+          },
+        });
+        await tx.agentCreationOrder.update({
+          where: { id: orderId },
+          data: { agentId: newAgent.id, status: 'PROVISIONING' },
+        });
+        return newAgent;
+      });
+      agentId = agent.id;
+    }
+
+    // Delegate to the existing provision handler
+    await this.handleProvision({ data: { agentId, userId: order.userId } } as any);
+
+    // Mark order completed
+    await this.prisma.agentCreationOrder.update({
+      where: { id: orderId },
+      data: { status: 'COMPLETED' },
+    });
+
+    console.log(`✅ Order ${orderId} completed — agent ${agentId}`);
   }
 
   private async handleProvision(job: Job<{ agentId: string; userId: string }>) {

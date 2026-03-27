@@ -1,145 +1,142 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Cpu, Wallet, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
+import { Cpu, Loader2, AlertCircle, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useWallet } from '@/hooks/useWallet';
+import { isAddress } from 'viem';
 
 export default function ConnectPage() {
   const router = useRouter();
-  const {
-    address,
-    isConnected,
-    isAuthenticated,
-    isConnecting,
-    isAuthenticating,
-    connectors,
-    error,
-    connectAndAuth,
-    authenticate,
-  } = useWallet();
+  const { isAuthenticated, isAuthenticating, error, signIn } = useWallet();
+
+  const [address, setAddress] = useState('');
+  const [validationError, setValidationError] = useState('');
 
   useEffect(() => {
     if (isAuthenticated) router.replace('/agents');
   }, [isAuthenticated, router]);
 
-  useEffect(() => {
-    if (isConnected && !isAuthenticated && !isAuthenticating) {
-      authenticate();
-    }
-  }, [isConnected, isAuthenticated, isAuthenticating, authenticate]);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setValidationError('');
 
-  const step = !isConnected ? 1 : !isAuthenticated ? 2 : 3;
+    const trimmed = address.trim();
+    if (!trimmed) {
+      setValidationError('Ingresá tu dirección de wallet.');
+      return;
+    }
+    if (!isAddress(trimmed)) {
+      setValidationError('Dirección inválida. Debe empezar con 0x y tener 42 caracteres.');
+      return;
+    }
+
+    await signIn(trimmed);
+  };
+
+  const displayError = validationError || error;
+  const addressIsValid = isAddress(address.trim());
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-zinc-950 flex flex-col">
+      {/* Background glows — same as landing page */}
       <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-80 h-80 bg-violet-600/8 rounded-full blur-3xl" />
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl" />
       </div>
 
-      <div className="relative w-full max-w-md">
-        {/* Logo */}
-        <div className="flex items-center gap-2 justify-center mb-8">
-          <Cpu className="h-7 w-7 text-violet-400" />
-          <span className="font-bold text-xl text-white">CryptoAgent</span>
+      {/* Top bar */}
+      <header className="relative z-10 border-b border-zinc-800/60 backdrop-blur-sm">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center">
+          <div className="flex items-center gap-2">
+            <Cpu className="h-6 w-6 text-violet-400" />
+            <span className="font-semibold text-white">CryptoAgent</span>
+          </div>
         </div>
+      </header>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
-          <h1 className="text-2xl font-bold text-white mb-2">Connect Wallet</h1>
-          <p className="text-zinc-400 text-sm mb-8">
-            Sign in with your Web3 wallet to manage your AI agents
-          </p>
+      {/* Center card */}
+      <main className="relative z-10 flex-1 flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-sm">
 
-          {/* Steps */}
-          <div className="flex items-center gap-3 mb-8">
-            {['Connect', 'Sign', 'Launch'].map((label, i) => (
-              <div key={label} className="flex items-center gap-3 flex-1">
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors ${
-                      i + 1 < step
-                        ? 'bg-emerald-500 text-white'
-                        : i + 1 === step
-                          ? 'bg-violet-600 text-white ring-2 ring-violet-400/30'
-                          : 'bg-zinc-800 text-zinc-500'
-                    }`}
-                  >
-                    {i + 1 < step ? '✓' : i + 1}
-                  </div>
-                  <span
-                    className={`text-xs font-medium ${i + 1 <= step ? 'text-zinc-200' : 'text-zinc-600'}`}
-                  >
-                    {label}
-                  </span>
-                </div>
-                {i < 2 && <div className="flex-1 h-px bg-zinc-800" />}
-              </div>
-            ))}
+          {/* Heading */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 text-violet-300 text-xs font-medium px-3 py-1.5 rounded-full mb-5">
+              <span className="w-1.5 h-1.5 bg-violet-400 rounded-full" />
+              Beexo Wallet
+            </div>
+            <h1 className="text-2xl font-bold text-white mb-2">Conectá tu wallet</h1>
+            <p className="text-zinc-500 text-sm">
+              Ingresá tu dirección para acceder a la plataforma
+            </p>
           </div>
 
-          {/* Error */}
-          {error && (
-            <div className="flex gap-2 items-start bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg p-3 mb-6">
-              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
+          {/* Card */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
 
-          {/* Wallet buttons */}
-          {!isConnected && (
-            <div className="space-y-3">
-              {connectors.map((connector) => (
-                <button
-                  key={connector.uid}
-                  onClick={() => connectAndAuth(connector.id)}
-                  disabled={isConnecting}
-                  className="w-full flex items-center gap-3 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 text-white font-medium px-4 py-3.5 rounded-xl transition-all disabled:opacity-50"
-                >
-                  <Wallet className="h-5 w-5 text-violet-400" />
-                  <span>{connector.name}</span>
-                  {isConnecting ? (
-                    <Loader2 className="h-4 w-4 ml-auto animate-spin" />
-                  ) : (
-                    <ArrowRight className="h-4 w-4 ml-auto text-zinc-500" />
-                  )}
-                </button>
-              ))}
-
-              <div className="pt-4 border-t border-zinc-800">
-                <p className="text-xs text-zinc-600 text-center">
-                  Don&apos;t have a wallet?{' '}
-                  <a
-                    href="https://beexo.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-violet-400 hover:text-violet-300"
-                  >
-                    Get Beexo
-                  </a>
-                </p>
+            {/* Error */}
+            {displayError && (
+              <div className="flex gap-2 items-start bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-xl p-3 mb-6">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>{displayError}</span>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Signing state */}
-          {isConnected && !isAuthenticated && (
-            <div className="text-center py-4">
-              <Loader2 className="h-8 w-8 animate-spin text-violet-400 mx-auto mb-3" />
-              <p className="text-white font-medium">Waiting for signature…</p>
-              <p className="text-zinc-500 text-sm mt-1 mb-4">
-                Check your wallet for a sign request
-              </p>
-              <code className="text-xs text-zinc-600 bg-zinc-800/60 px-3 py-1.5 rounded-full">
-                {address?.slice(0, 6)}…{address?.slice(-4)}
-              </code>
-            </div>
-          )}
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-2">
+                  Dirección de wallet
+                </label>
+                <input
+                  type="text"
+                  placeholder="0x..."
+                  value={address}
+                  onChange={(e) => {
+                    setAddress(e.target.value);
+                    setValidationError('');
+                  }}
+                  disabled={isAuthenticating}
+                  className="w-full bg-zinc-800 border border-zinc-700 focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30 text-white placeholder-zinc-600 rounded-xl px-4 py-3 text-sm font-mono outline-none transition-all disabled:opacity-50"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+
+                {/* Inline valid indicator */}
+                {address.length > 10 && addressIsValid && (
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-xs text-emerald-400 font-mono">
+                      {address.trim().slice(0, 8)}…{address.trim().slice(-6)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={isAuthenticating}
+                className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-600/50 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-violet-600/20 hover:shadow-violet-600/30 active:scale-[0.98]"
+              >
+                {isAuthenticating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Conectando…</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Conectar</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+
+          <p className="text-center text-zinc-700 text-xs mt-6">
+            Al conectar aceptás los Términos de Servicio
+          </p>
         </div>
-
-        <p className="text-center text-zinc-600 text-xs mt-6">
-          By connecting you agree to our Terms of Service
-        </p>
-      </div>
+      </main>
     </div>
   );
 }

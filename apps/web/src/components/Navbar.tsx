@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Cpu, LayoutGrid, Settings, LogOut, Coins, ChevronDown } from 'lucide-react';
+import { Cpu, LayoutGrid, Settings, LogOut, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import { useWallet } from '@/hooks/useWallet';
 import { useStore } from '@/store/useStore';
@@ -11,8 +11,9 @@ import { cn } from '@repo/ui';
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { address, disconnect } = useWallet();
+  const { disconnect } = useWallet();
   const { user } = useStore();
+  const address = user?.walletAddress ?? null;
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const navLinks = [
@@ -58,14 +59,6 @@ export function Navbar() {
 
         {/* User menu */}
         <div className="flex items-center gap-3">
-          {/* Credits */}
-          {user && (
-            <div className="hidden sm:flex items-center gap-1.5 bg-zinc-800/80 border border-zinc-700/50 px-3 py-1.5 rounded-lg">
-              <Coins className="h-3.5 w-3.5 text-amber-400" />
-              <span className="text-xs font-medium text-zinc-200">{user.credits} cr</span>
-            </div>
-          )}
-
           {/* Wallet dropdown */}
           <div className="relative">
             <button
