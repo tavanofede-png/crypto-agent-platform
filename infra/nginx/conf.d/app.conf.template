@@ -1,0 +1,110 @@
+# ─── HTTPS — Main application ────────────────────────────────
+# Replace DOMAIN_PLACEHOLDER with your actual domain before use.
+# This file is copied to app.conf by setup.sh after SSL is issued.
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name DOMAIN_PLACEHOLDER;
+
+    # ─── SSL ──────────────────────────────────────────────
+    ssl_certificate     /etc/letsencrypt/live/DOMAIN_PLACEHOLDER/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/DOMAIN_PLACEHOLDER/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/DOMAIN_PLACEHOLDER/chain.pem;
+
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS (1 year)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # OCSP stapling
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    resolver 1.1.1.1 8.8.8.8 valid=300s;
+    resolver_timeout 5s;
+
+    # ─── API routes ───────────────────────────────────────
+    location /api/ {
+        limit_req zone=api burst=20 nodelay;
+        limit_conn conn_limit 20;
+
+        proxy_pass http://api_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+
+        proxy_read_timeout 120s;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 120s;
+
+        # SSE streaming support
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    # ─── Auth routes (stricter rate limit) ────────────────
+    location /api/auth/ {
+        limit_req zone=auth burst=5 nodelay;
+
+        proxy_pass http://api_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # ─── WebSocket (Socket.IO) ────────────────────────────
+    location /socket.io/ {
+        proxy_pass http://api_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+
+    # ─── Next.js frontend ─────────────────────────────────
+    location / {
+        proxy_pass http://web_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+
+        # Next.js HMR websocket (dev only - no-op in prod)
+        proxy_set_header Upgrade $http_upgrade;
+    }
+
+    # ─── Next.js static files (long cache) ───────────────
+    location /_next/static/ {
+        proxy_pass http://web_upstream;
+        proxy_cache_valid 200 365d;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # ─── Health check endpoint ────────────────────────────
+    location /health {
+        access_log off;
+        proxy_pass http://api_upstream/api/auth/nonce/0x0000000000000000000000000000000000000000;
+        proxy_read_timeout 5s;
+    }
+}
