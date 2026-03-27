@@ -1,0 +1,162 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum AgentStatus {
+  PROVISIONING
+  RUNNING
+  STOPPED
+  ERROR
+  DELETED
+}
+
+enum AgentFramework {
+  OPENCLAW
+  ZEROCLAW
+}
+
+enum AgentModel {
+  GPT_4O         @map("gpt-4o")
+  GPT_4O_MINI    @map("gpt-4o-mini")
+  GPT_4_TURBO    @map("gpt-4-turbo")
+  CLAUDE_3_5     @map("claude-3-5-sonnet-20241022")
+  CLAUDE_3_HAIKU @map("claude-3-haiku-20240307")
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  id            String        @id @default(cuid())
+  walletAddress String        @unique @map("wallet_address")
+  nonce         String        @default(cuid())
+  credits       Int           @default(0)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  agents        Agent[]
+  transactions  Transaction[]
+
+  @@map("users")
+}
+
+model Agent {
+  id            String         @id @default(cuid())
+  userId        String         @map("user_id")
+  name          String
+  description   String?
+  framework     AgentFramework @default(ZEROCLAW)
+  model         String         @default("gpt-4o")
+  status        AgentStatus    @default(PROVISIONING)
+  workspacePath String?        @map("workspace_path")
+  systemPrompt  String?        @map("system_prompt") @db.Text
+  temperature   Float          @default(0.7)
+  maxTokens     Int            @default(2048) @map("max_tokens")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill         Skill?
+  chatSessions  ChatSession[]
+  logs          AgentLog[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("agents")
+}
+
+model Skill {
+  id        String   @id @default(cuid())
+  agentId   String   @unique @map("agent_id")
+  content   String   @db.Text
+  template  String?
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@map("skills")
+}
+
+model ChatSession {
+  id        String        @id @default(cuid())
+  agentId   String        @map("agent_id")
+  title     String?
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  agent     Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+
+  @@index([agentId])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id           String      @id @default(cuid())
+  sessionId    String      @map("session_id")
+  role         String
+  content      String      @db.Text
+  tokensUsed   Int?        @map("tokens_used")
+  durationMs   Int?        @map("duration_ms")
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  session      ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("chat_messages")
+}
+
+model Transaction {
+  id             String            @id @default(cuid())
+  walletAddress  String            @map("wallet_address")
+  txHash         String?           @unique @map("tx_hash")
+  amount         Float
+  token          String            @default("USDC")
+  chainId        Int               @default(1) @map("chain_id")
+  status         TransactionStatus @default(PENDING)
+  creditsAwarded Int               @default(0) @map("credits_awarded")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  user           User              @relation(fields: [walletAddress], references: [walletAddress])
+
+  @@index([walletAddress])
+  @@index([status])
+  @@map("transactions")
+}
+
+model AgentLog {
+  id        String   @id @default(cuid())
+  agentId   String   @map("agent_id")
+  level     LogLevel @default(INFO)
+  message   String   @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([createdAt])
+  @@map("agent_logs")
+}

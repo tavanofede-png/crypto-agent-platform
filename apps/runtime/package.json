@@ -1,0 +1,33 @@
+{
+  "name": "@repo/runtime",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node -r tsconfig-paths/register src/main.ts",
+    "start": "node dist/main",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "openai": "^4.52.7",
+    "@anthropic-ai/sdk": "^0.27.2",
+    "fs-extra": "^11.2.0",
+    "toml": "^3.0.0",
+    "uuid": "^10.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "@types/fs-extra": "^11.0.4",
+    "@types/cors": "^2.8.17",
+    "@types/morgan": "^1.9.9",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.4.5",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0"
+  }
+}

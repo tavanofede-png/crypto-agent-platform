@@ -1,0 +1,111 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { Cpu, LayoutGrid, Settings, LogOut, Coins, ChevronDown } from 'lucide-react';
+import { useState } from 'react';
+import { useWallet } from '@/hooks/useWallet';
+import { useStore } from '@/store/useStore';
+import { cn } from '@repo/ui';
+
+export function Navbar() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { address, disconnect } = useWallet();
+  const { user } = useStore();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  const navLinks = [
+    { href: '/agents', label: 'Agents', icon: LayoutGrid },
+  ];
+
+  const handleLogout = () => {
+    disconnect();
+    router.push('/');
+  };
+
+  const shortAddress = address
+    ? `${address.slice(0, 6)}…${address.slice(-4)}`
+    : null;
+
+  return (
+    <header className="sticky top-0 z-50 border-b border-zinc-800/60 bg-zinc-950/90 backdrop-blur-sm">
+      <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+        {/* Logo */}
+        <Link href="/agents" className="flex items-center gap-2 text-white font-semibold">
+          <Cpu className="h-5 w-5 text-violet-400" />
+          <span className="hidden sm:block">CryptoAgent</span>
+        </Link>
+
+        {/* Nav */}
+        <nav className="flex items-center gap-1">
+          {navLinks.map(({ href, label, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                pathname.startsWith(href)
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60',
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </Link>
+          ))}
+        </nav>
+
+        {/* User menu */}
+        <div className="flex items-center gap-3">
+          {/* Credits */}
+          {user && (
+            <div className="hidden sm:flex items-center gap-1.5 bg-zinc-800/80 border border-zinc-700/50 px-3 py-1.5 rounded-lg">
+              <Coins className="h-3.5 w-3.5 text-amber-400" />
+              <span className="text-xs font-medium text-zinc-200">{user.credits} cr</span>
+            </div>
+          )}
+
+          {/* Wallet dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setDropdownOpen((o) => !o)}
+              className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-3 py-1.5 rounded-lg text-sm transition-colors"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span className="text-zinc-200 font-mono text-xs">{shortAddress}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
+            </button>
+
+            {dropdownOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setDropdownOpen(false)}
+                />
+                <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl z-50 py-1 animate-fade-in">
+                  <Link
+                    href="/settings"
+                    onClick={() => setDropdownOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+                  >
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </Link>
+                  <div className="border-t border-zinc-800 my-1" />
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Disconnect
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
