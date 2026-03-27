@@ -13,14 +13,18 @@
     "db:seed": "pnpm --filter @repo/db db:seed",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f"
+    "docker:logs": "docker-compose logs -f",
+    "smoke-test": "ts-node -r tsconfig-paths/register scripts/smoke-test.ts"
   },
   "devDependencies": {
     "turbo": "^2.1.3",
     "typescript": "^5.4.5",
     "@types/node": "^20.14.0",
     "prettier": "^3.3.0",
-    "eslint": "^8.57.0"
+    "eslint": "^8.57.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "dotenv": "^16.4.5"
   },
   "packageManager": "pnpm@9.1.4",
   "engines": {
