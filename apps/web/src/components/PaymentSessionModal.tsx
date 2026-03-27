@@ -114,6 +114,24 @@ function ExpiryTimer({ expiresAt }: { expiresAt: string }) {
   );
 }
 
+// ─── Chain → block explorer base URL ─────────────────────────────────────────
+
+const EXPLORER_TX_URL: Record<number, string> = {
+  1:        'https://etherscan.io/tx/',
+  137:      'https://polygonscan.com/tx/',
+  42161:    'https://arbiscan.io/tx/',
+  8453:     'https://basescan.org/tx/',
+  10:       'https://optimistic.etherscan.io/tx/',
+  56:       'https://bscscan.com/tx/',
+  11155111: 'https://sepolia.etherscan.io/tx/',
+  80002:    'https://amoy.polygonscan.com/tx/',
+};
+
+function getTxUrl(chainId: number, txHash: string): string {
+  const base = EXPLORER_TX_URL[chainId] ?? 'https://etherscan.io/tx/';
+  return `${base}${txHash}`;
+}
+
 // ─── Main modal ───────────────────────────────────────────────────────────────
 
 export function PaymentSessionModal({ purpose, onConfirmed, onClose, defaultChainId }: Props) {
@@ -132,10 +150,12 @@ export function PaymentSessionModal({ purpose, onConfirmed, onClose, defaultChai
   const isTerminal = ['confirmed', 'expired', 'error'].includes(uiStatus);
   const chainId = defaultChainId ?? connectedChainId ?? 11155111;
 
-  // Auto-create session when modal opens
+  // Auto-create session on first render. Purpose and chainId are stable for the
+  // lifetime of this modal instance, so the empty-dep lint warning is intentional.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     createSession({ purpose, chainId });
-  }, []);
+  }, [purpose, chainId]);
 
   useEffect(() => {
     if (uiStatus === 'confirmed' && session) {
@@ -254,7 +274,7 @@ export function PaymentSessionModal({ purpose, onConfirmed, onClose, defaultChai
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-zinc-500">Your tx</span>
                   <a
-                    href={`https://etherscan.io/tx/${userTxHash}`}
+                    href={getTxUrl(session?.chainId ?? chainId, userTxHash)}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-center gap-1 text-violet-400 hover:text-violet-300 font-mono"
@@ -335,8 +355,10 @@ export function PaymentSessionModal({ purpose, onConfirmed, onClose, defaultChai
 
             {(uiStatus === 'expired' || uiStatus === 'error') && (
               <button
-                onClick={() => {
+                onClick={async () => {
                   reset();
+                  // Small delay so reset state propagates before re-creating
+                  await new Promise((r) => setTimeout(r, 50));
                   createSession({ purpose, chainId });
                 }}
                 className="w-full flex items-center justify-center gap-2 bg-zinc-700 hover:bg-zinc-600 text-white font-semibold py-3 rounded-xl transition-colors"

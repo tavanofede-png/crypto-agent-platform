@@ -59,14 +59,14 @@ export function buildChainConfigs(config: ConfigService): ChainConfig[] {
 
   // Default names / block times for known chains
   const META: Record<number, { name: string; native: string; blockTime: number }> = {
-    1:        { name: 'Ethereum',       native: 'ETH',   blockTime: 12 },
-    137:      { name: 'Polygon',        native: 'MATIC',  blockTime: 2  },
-    42161:    { name: 'Arbitrum One',   native: 'ETH',   blockTime: 1  },
-    8453:     { name: 'Base',           native: 'ETH',   blockTime: 2  },
-    10:       { name: 'Optimism',       native: 'ETH',   blockTime: 2  },
-    56:       { name: 'BNB Chain',      native: 'BNB',   blockTime: 3  },
-    11155111: { name: 'Sepolia',        native: 'ETH',   blockTime: 12 },
-    80001:    { name: 'Mumbai',         native: 'MATIC',  blockTime: 2  },
+    1:        { name: 'Ethereum',          native: 'ETH',  blockTime: 12 },
+    137:      { name: 'Polygon',           native: 'MATIC', blockTime: 2  },
+    42161:    { name: 'Arbitrum One',      native: 'ETH',  blockTime: 1  },
+    8453:     { name: 'Base',              native: 'ETH',  blockTime: 2  },
+    10:       { name: 'Optimism',          native: 'ETH',  blockTime: 2  },
+    56:       { name: 'BNB Chain',         native: 'BNB',  blockTime: 3  },
+    11155111: { name: 'Sepolia',           native: 'ETH',  blockTime: 12 },
+    80002:    { name: 'Polygon Amoy',      native: 'MATIC', blockTime: 2  }, // replaced Mumbai (80001)
   };
 
   return chainIds.map((id) => {
@@ -116,7 +116,11 @@ export const KNOWN_TOKENS: Record<number, Record<string, string>> = {
     USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
   },
   11155111: {
-    // Sepolia test tokens — deploy your own or use a faucet
+    // Sepolia test tokens — deploy your own or use Circle's faucet
     USDC: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+  },
+  80002: {
+    // Polygon Amoy (testnet) test tokens
+    USDC: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
   },
 };

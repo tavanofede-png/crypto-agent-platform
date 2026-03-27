@@ -26,5 +26,9 @@ COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 
+# Entrypoint runs `prisma migrate deploy` then starts the server
+COPY apps/api/entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
+
 EXPOSE 3001
-CMD ["node", "apps/api/dist/main"]
+ENTRYPOINT ["./entrypoint.sh"]

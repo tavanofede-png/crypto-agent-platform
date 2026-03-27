@@ -67,13 +67,19 @@ export class PaymentSessionService {
       where: {
         userId,
         chainId: dto.chainId,
+        purpose: dto.purpose,
         status: 'PENDING',
         expiresAt: { gt: new Date() },
       },
     });
     if (existing) {
-      // Return existing session rather than creating a duplicate
-      return this.formatSession(existing);
+      // Return existing session with full details — same shape as a newly created one
+      const chainCfg = this.chainService.getChainConfig(existing.chainId);
+      return {
+        ...this.formatSession(existing),
+        treasuryAddress: this.chainService.getTreasuryAddress(),
+        chainName: chainCfg.name,
+      };
     }
 
     const chainCfg = this.chainService.getChainConfig(dto.chainId);

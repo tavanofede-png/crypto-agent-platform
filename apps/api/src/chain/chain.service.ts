@@ -29,7 +29,7 @@ import {
   optimism,
   bsc,
   sepolia,
-  polygonMumbai,
+  polygonAmoy,
 } from 'viem/chains';
 import type { Chain } from 'viem/chains';
 import { buildChainConfigs, ChainConfig, TokenConfig } from './chain.config';
@@ -48,7 +48,7 @@ const VIEM_CHAINS: Record<number, Chain> = {
   10:       optimism,
   56:       bsc,
   11155111: sepolia,
-  80001:    polygonMumbai,
+  80002:    polygonAmoy,  // Polygon Amoy testnet (replaced Mumbai/80001)
 };
 
 export interface NativeTransferInfo {
