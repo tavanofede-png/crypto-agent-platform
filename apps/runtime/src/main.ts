@@ -1,4 +1,8 @@
-import 'dotenv/config';
+import path from 'path';
+import dotenv from 'dotenv';
+// In the monorepo the root .env is two directories above apps/runtime
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
+dotenv.config(); // fallback: also honour a local apps/runtime/.env if present
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import morgan from 'morgan';

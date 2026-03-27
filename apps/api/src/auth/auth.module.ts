@@ -6,6 +6,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { JwtAuthGuard } from './jwt-auth.guard';
+// ConfigModule is imported globally in AppModule — the import here ensures
+// ConfigService is available to AuthModule when used in isolation (e.g. tests).
 
 @Module({
   imports: [

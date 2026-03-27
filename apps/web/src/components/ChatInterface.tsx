@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Send, Bot, User, Loader2, WifiOff, Wifi, RotateCw, AlertTriangle } from 'lucide-react';
+import { Send, Bot, User, Loader2, WifiOff, Wifi, Plus, AlertTriangle } from 'lucide-react';
 import { useChat, type Message } from '@/hooks/useChat';
 import { cn } from '@repo/ui';
 
@@ -73,7 +73,7 @@ function MessageBubble({ message }: { message: Message }) {
 }
 
 export function ChatInterface({ agentId, agentName, agentStatus }: Props) {
-  const { messages, isConnected, isStreaming, error, sendMessage, clearMessages } =
+  const { messages, isConnected, isStreaming, error, sendMessage, startNewChat } =
     useChat(agentId);
 
   const [input, setInput] = useState('');
@@ -126,11 +126,13 @@ export function ChatInterface({ agentId, agentName, agentStatus }: Props) {
         </div>
 
         <button
-          onClick={clearMessages}
-          className="p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors"
-          title="Clear chat"
+          onClick={startNewChat}
+          disabled={isStreaming}
+          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+          title="New conversation"
         >
-          <RotateCw className="h-4 w-4" />
+          <Plus className="h-3.5 w-3.5" />
+          New chat
         </button>
       </div>
 

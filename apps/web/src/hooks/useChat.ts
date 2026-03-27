@@ -33,11 +33,29 @@ export function useChat(agentId: string) {
     socket.on('connect', () => {
       setIsConnected(true);
       setError(null);
-      // Join agent room and create session
+      // Join the agent room, then restore the latest session with its history.
       socket.emit('join-agent', agentId);
-      socket.emit('new-session', agentId, (session: { id: string }) => {
-        setSessionId(session.id);
-      });
+      socket.emit(
+        'new-session',
+        agentId,
+        (session: {
+          id: string;
+          messages: Array<{ id: string; role: string; content: string; tokensUsed?: number | null; createdAt: string }>;
+        }) => {
+          if (!session?.id) return;
+          setSessionId(session.id);
+          if (session.messages?.length) {
+            const loaded: Message[] = session.messages.map((m) => ({
+              id:         m.id,
+              role:       m.role as 'user' | 'assistant',
+              content:    m.content,
+              tokensUsed: m.tokensUsed ?? undefined,
+              createdAt:  new Date(m.createdAt),
+            }));
+            setMessages(loaded);
+          }
+        },
+      );
     });
 
     socket.on('disconnect', () => setIsConnected(false));
@@ -136,6 +154,19 @@ export function useChat(agentId: string) {
 
   const clearMessages = useCallback(() => setMessages([]), []);
 
+  const startNewChat = useCallback(() => {
+    if (!socketRef.current) return;
+    socketRef.current.emit(
+      'new-chat',
+      agentId,
+      (session: { id: string }) => {
+        if (!session?.id) return;
+        setSessionId(session.id);
+        setMessages([]);
+      },
+    );
+  }, [agentId]);
+
   return {
     messages,
     sessionId,
@@ -144,5 +175,6 @@ export function useChat(agentId: string) {
     error,
     sendMessage,
     clearMessages,
+    startNewChat,
   };
 }

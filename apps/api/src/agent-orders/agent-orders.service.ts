@@ -69,7 +69,7 @@ export class AgentOrdersService {
     try { treasury = this.chainService.getTreasuryAddress(); } catch { /* use placeholder */ }
 
     // Create order + payment session atomically
-    const order = await this.prisma.$transaction(async (tx) => {
+    const { order, session } = await this.prisma.$transaction(async (tx) => {
       const newOrder = await tx.agentCreationOrder.create({
         data: {
           userId,
@@ -88,7 +88,7 @@ export class AgentOrdersService {
         },
       });
 
-      await tx.paymentSession.create({
+      const newSession = await tx.paymentSession.create({
         data: {
           userId,
           walletAddress:  user.walletAddress,
@@ -104,12 +104,26 @@ export class AgentOrdersService {
         },
       });
 
-      return newOrder;
+      return { order: newOrder, session: newSession };
     });
 
     this.logger.log(`Order ${order.id} created for user ${userId}: ${price} ${symbol} on chain ${chainId}`);
 
-    return this.formatOrder(order, treasury);
+    return {
+      ...this.formatOrder(order, treasury),
+      paymentSession: {
+        id:             session.id,
+        status:         session.status,
+        walletAddress:  session.walletAddress,
+        chainId:        session.chainId,
+        tokenAddress:   session.tokenAddress,
+        tokenSymbol:    session.tokenSymbol,
+        displayAmount:  session.displayAmount,
+        expiresAt:      session.expiresAt,
+        treasuryAddress: treasury,
+        blockchainPayment: null,
+      },
+    };
   }
 
   // ─── Get order ─────────────────────────────────────────────
@@ -208,89 +222,6 @@ export class AgentOrdersService {
     await this.prisma.agentCreationOrder.updateMany({
       where: { id: orderId, status: OrderStatus.AWAITING_PAYMENT },
       data:  { status: OrderStatus.PAYMENT_DETECTED },
-    });
-  }
-
-  // Called by worker to actually create the agent
-  async provisionFromOrder(orderId: string) {
-    const order = await this.prisma.agentCreationOrder.findUnique({
-      where: { id: orderId },
-      include: { user: true },
-    });
-
-    if (!order) throw new NotFoundException(`Order ${orderId} not found`);
-    if (order.agentId) {
-      this.logger.warn(`Order ${orderId} already has agentId — skipping duplicate provision`);
-      return;
-    }
-
-    await this.prisma.agentCreationOrder.update({
-      where: { id: orderId },
-      data: { status: OrderStatus.PROVISIONING },
-    });
-
-    try {
-      const agent = await this.prisma.$transaction(async (tx) => {
-        const newAgent = await tx.agent.create({
-          data: {
-            userId:      order.userId,
-            name:        order.agentName,
-            description: order.agentDescr ?? undefined,
-            framework:   order.framework,
-            model:       order.model,
-            temperature: order.temperature,
-            maxTokens:   order.maxTokens,
-            status:      'PROVISIONING',
-          },
-        });
-
-        await tx.skill.create({
-          data: {
-            agentId:  newAgent.id,
-            content:  order.skillContent,
-            template: order.skillTemplate,
-          },
-        });
-
-        await tx.agentLog.create({
-          data: {
-            agentId: newAgent.id,
-            level:   'INFO',
-            message: `Agent created from order ${orderId}`,
-          },
-        });
-
-        await tx.agentCreationOrder.update({
-          where: { id: orderId },
-          data:  { agentId: newAgent.id },
-        });
-
-        return newAgent;
-      });
-
-      // Queue the runtime provisioning step
-      await this.agentsQueue.add(
-        'provision',
-        { agentId: agent.id, userId: order.userId },
-        { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
-      );
-
-      this.logger.log(`Agent ${agent.id} created from order ${orderId}`);
-      return agent;
-    } catch (err: any) {
-      await this.prisma.agentCreationOrder.update({
-        where: { id: orderId },
-        data:  { status: OrderStatus.FAILED, failedReason: err.message },
-      });
-      throw err;
-    }
-  }
-
-  // Called by worker once provisioning succeeds
-  async markOrderCompleted(orderId: string) {
-    await this.prisma.agentCreationOrder.updateMany({
-      where: { id: orderId, status: OrderStatus.PROVISIONING },
-      data:  { status: OrderStatus.COMPLETED },
     });
   }
 

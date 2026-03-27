@@ -8,18 +8,18 @@ import { AgentCard } from '@/components/AgentCard';
 import { CreateAgentModal } from '@/components/CreateAgentModal';
 import { agentsApi } from '@/lib/api';
 import { useStore } from '@/store/useStore';
+import { AuthGuard } from '@/components/AuthGuard';
 
-export default function AgentsPage() {
+function AgentsPageContent() {
   const router = useRouter();
-  const { isAuthenticated, agents, setAgents, removeAgent, updateAgentStatus } = useStore();
+  const { agents, setAgents, removeAgent, updateAgentStatus } = useStore();
 
   const [loading,    setLoading]    = useState(true);
   const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) { router.replace('/connect'); return; }
     loadAgents();
-  }, [isAuthenticated]);
+  }, []);
 
   const loadAgents = useCallback(async () => {
     setLoading(true);
@@ -116,4 +116,8 @@ export default function AgentsPage() {
       )}
     </div>
   );
+}
+
+export default function AgentsPage() {
+  return <AuthGuard><AgentsPageContent /></AuthGuard>;
 }

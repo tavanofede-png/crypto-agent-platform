@@ -15,8 +15,7 @@
  * markConfirmed() (in PaymentSessionService):
  *  - Updates BlockchainPayment.confirmedAt
  *  - Updates PaymentSession.status = CONFIRMED
- *  - Increments User.credits
- *  - Appends CreditLedger entry
+ *  - Calls AgentOrdersService.onPaymentConfirmed() → triggers agent provisioning
  */
 
 import { Injectable, Logger } from '@nestjs/common';

@@ -106,7 +106,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       throw new WsException('Access denied');
     }
 
+    // Returns the latest existing session with its message history,
+    // or creates a new one if the agent has never been chatted with.
     const session = await this.chatService.getOrCreateSession(agentId);
+    return session;
+  }
+
+  @SubscribeMessage('new-chat')
+  async handleNewChat(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() agentId: string,
+  ) {
+    const agent = await this.prisma.agent.findUnique({ where: { id: agentId } });
+    if (!agent || agent.userId !== client.userId) {
+      throw new WsException('Access denied');
+    }
+
+    const session = await this.chatService.createNewSession(agentId);
     return session;
   }
 

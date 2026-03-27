@@ -15,6 +15,7 @@ import { SkillEditor } from '@/components/SkillEditor';
 import { agentsApi } from '@/lib/api';
 import { useStore } from '@/store/useStore';
 import type { Agent } from '@/store/useStore';
+import { AuthGuard } from '@/components/AuthGuard';
 
 interface AgentLog {
   id: string;
@@ -30,10 +31,10 @@ const LOG_LEVEL_COLORS: Record<string, string> = {
   ERROR: 'text-red-400',
 };
 
-export default function AgentSettingsPage() {
+function AgentSettingsContent() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { isAuthenticated, removeAgent } = useStore();
+  const { removeAgent } = useStore();
 
   const [agent, setAgent] = useState<Agent | null>(null);
   const [logs, setLogs] = useState<AgentLog[]>([]);
@@ -43,9 +44,8 @@ export default function AgentSettingsPage() {
   const [form, setForm] = useState({ name: '', description: '', model: '', temperature: 0.7 });
 
   useEffect(() => {
-    if (!isAuthenticated) { router.replace('/connect'); return; }
     loadData();
-  }, [isAuthenticated, id]);
+  }, [id]);
 
   const loadData = async () => {
     setLoading(true);
@@ -271,4 +271,8 @@ export default function AgentSettingsPage() {
       </main>
     </div>
   );
+}
+
+export default function AgentSettingsPage() {
+  return <AuthGuard><AgentSettingsContent /></AuthGuard>;
 }

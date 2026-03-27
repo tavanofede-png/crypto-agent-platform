@@ -9,6 +9,7 @@ import { ChatInterface } from '@/components/ChatInterface';
 import { agentsApi } from '@/lib/api';
 import { useStore } from '@/store/useStore';
 import type { Agent } from '@/store/useStore';
+import { AuthGuard } from '@/components/AuthGuard';
 
 const STATUS_COLORS: Record<string, string> = {
   RUNNING: 'bg-emerald-400',
@@ -17,21 +18,16 @@ const STATUS_COLORS: Record<string, string> = {
   ERROR: 'bg-red-400',
 };
 
-export default function AgentChatPage() {
+function AgentChatContent() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { isAuthenticated } = useStore();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
   const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace('/connect');
-      return;
-    }
     loadAgent();
-  }, [isAuthenticated, id]);
+  }, [id]);
 
   // Poll agent status while provisioning
   useEffect(() => {
@@ -130,4 +126,8 @@ export default function AgentChatPage() {
       </div>
     </div>
   );
+}
+
+export default function AgentChatPage() {
+  return <AuthGuard><AgentChatContent /></AuthGuard>;
 }

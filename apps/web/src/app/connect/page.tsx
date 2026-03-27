@@ -1,45 +1,169 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Cpu, Loader2, AlertCircle, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { useWallet } from '@/hooks/useWallet';
-import { isAddress } from 'viem';
+import { useAccount } from 'wagmi';
+import {
+  Cpu,
+  Loader2,
+  AlertCircle,
+  Wallet,
+  RefreshCw,
+  ShieldCheck,
+  CheckCircle2,
+  ExternalLink,
+} from 'lucide-react';
+import { useWalletAuth } from '@/hooks/useWallet';
+
+// ─── Auth step state machine ──────────────────────────────────────────────────
+
+type Step =
+  | 'idle'          // No wallet connected — show connector list
+  | 'connecting'    // wagmi connect() in flight
+  | 'signing'       // Nonce fetched — wallet popup open
+  | 'verifying'     // POST /auth/verify in flight
+  | 'done';         // JWT received — will redirect
+
+const STEP_LABELS: Record<Step, string | null> = {
+  idle:       null,
+  connecting: 'Opening wallet…',
+  signing:    'Check your wallet — approve the sign request',
+  verifying:  'Verifying signature…',
+  done:       'Authenticated!',
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function ConnectorIcon({ name }: { name: string }) {
+  const n = name.toLowerCase();
+  if (n.includes('metamask'))      return <span className="text-xl leading-none">🦊</span>;
+  if (n.includes('coinbase'))      return <span className="text-xl leading-none">🔵</span>;
+  if (n.includes('walletconnect')) return <span className="text-xl leading-none">🔗</span>;
+  if (n.includes('rabby'))         return <span className="text-xl leading-none">🐇</span>;
+  if (n.includes('beexo'))         return <span className="text-xl leading-none">🐝</span>;
+  return <Wallet className="h-5 w-5 text-violet-400" />;
+}
+
+function connectorDescription(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes('injected') || n.includes('browser'))
+    return 'MetaMask · Beexo · Rabby · Coinbase Wallet';
+  if (n.includes('walletconnect'))
+    return 'Mobile & hardware wallets via QR code';
+  return 'EIP-1193 compatible';
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ConnectPage() {
   const router = useRouter();
-  const { isAuthenticated, isAuthenticating, error, signIn } = useWallet();
 
-  const [address, setAddress] = useState('');
-  const [validationError, setValidationError] = useState('');
+  const {
+    isAuthenticated,
+    isConnected,
+    address,
+    isConnecting,
+    isAuthenticating,
+    connectors,
+    connect,
+    authenticate,
+    logout,
+    error,
+    setError,
+  } = useWalletAuth();
 
+  useAccount(); // keeps wagmi state fresh
+
+  const [step, setStep]                     = useState<Step>('idle');
+  const [connectingId, setConnectingId]     = useState<string | null>(null);
+  const authTriggeredRef                    = useRef(false);
+
+  // ── Redirect once authenticated ──────────────────────────────────────────
   useEffect(() => {
-    if (isAuthenticated) router.replace('/agents');
+    if (isAuthenticated) {
+      setStep('done');
+      router.replace('/agents');
+    }
   }, [isAuthenticated, router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setValidationError('');
-
-    const trimmed = address.trim();
-    if (!trimmed) {
-      setValidationError('Ingresá tu dirección de wallet.');
-      return;
+  // ── Sync connecting state ────────────────────────────────────────────────
+  useEffect(() => {
+    if (isConnecting) {
+      setStep('connecting');
+    } else if (!isConnected && step === 'connecting') {
+      // Connect finished but no wallet → error was set by the hook.
+      setStep('idle');
+      setConnectingId(null);
     }
-    if (!isAddress(trimmed)) {
-      setValidationError('Dirección inválida. Debe empezar con 0x y tener 42 caracteres.');
-      return;
-    }
+  }, [isConnecting, isConnected]);
 
-    await signIn(trimmed);
+  // ── When error appears, reset spinners ──────────────────────────────────
+  useEffect(() => {
+    if (error) {
+      setStep('idle');
+      setConnectingId(null);
+      authTriggeredRef.current = false;
+    }
+  }, [error]);
+
+  // ── Auto-trigger auth once wallet connects ───────────────────────────────
+  useEffect(() => {
+    if (
+      isConnected &&
+      address &&
+      !isAuthenticated &&
+      !isAuthenticating &&
+      !authTriggeredRef.current
+    ) {
+      authTriggeredRef.current = true;
+      runAuth(address);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, address]);
+
+  // ── Auth flow ─────────────────────────────────────────────────────────────
+  const runAuth = async (walletAddress: string) => {
+    setError(null);
+    setStep('signing');
+    try {
+      await authenticate(walletAddress);
+      // On success → isAuthenticated flips → redirect useEffect fires.
+    } catch {
+      // error is already set inside authenticate()
+      setStep('idle');
+      setConnectingId(null);
+      authTriggeredRef.current = false;
+      logout();
+    }
   };
 
-  const displayError = validationError || error;
-  const addressIsValid = isAddress(address.trim());
+  // ── Connect handler ──────────────────────────────────────────────────────
+  const handleConnect = (connector: (typeof connectors)[number]) => {
+    setConnectingId(connector.id);
+    setError(null);
+    authTriggeredRef.current = false;
+    connect({ connector });
+    // If there's no wallet installed, wagmi will emit an error via
+    // useConnect().error → the hook's useEffect will surface it.
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    setStep('idle');
+    setConnectingId(null);
+    authTriggeredRef.current = false;
+    if (isConnected && address) {
+      runAuth(address);
+    }
+  };
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const isBusy    = step !== 'idle' && step !== 'done';
+  const stepLabel = STEP_LABELS[step];
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col">
-      {/* Background glows — same as landing page */}
+      {/* Background glows */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl" />
         <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl" />
@@ -57,84 +181,138 @@ export default function ConnectPage() {
 
       {/* Center card */}
       <main className="relative z-10 flex-1 flex items-center justify-center px-4 py-12">
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm space-y-5">
 
           {/* Heading */}
-          <div className="text-center mb-8">
+          <div className="text-center">
             <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 text-violet-300 text-xs font-medium px-3 py-1.5 rounded-full mb-5">
-              <span className="w-1.5 h-1.5 bg-violet-400 rounded-full" />
-              Beexo Wallet
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Cryptographic Sign-In
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">Conectá tu wallet</h1>
-            <p className="text-zinc-500 text-sm">
-              Ingresá tu dirección para acceder a la plataforma
+            <h1 className="text-2xl font-bold text-white mb-2">Connect your wallet</h1>
+            <p className="text-zinc-500 text-sm leading-relaxed">
+              Sign a message to prove wallet ownership.
+              <br />
+              No transaction. No gas.
             </p>
           </div>
 
-          {/* Card */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+          {/* Progress indicator */}
+          {isBusy && stepLabel && (
+            <div className="flex items-center gap-3 bg-violet-500/10 border border-violet-500/20 rounded-xl px-4 py-3.5 text-sm text-violet-300">
+              <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+              <span>{stepLabel}</span>
+            </div>
+          )}
 
-            {/* Error */}
-            {displayError && (
-              <div className="flex gap-2 items-start bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-xl p-3 mb-6">
+          {/* Success */}
+          {step === 'done' && (
+            <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3.5 text-sm text-emerald-300">
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+              Authenticated — redirecting…
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 space-y-3">
+              <div className="flex gap-2 items-start text-red-400 text-sm">
                 <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                <span>{displayError}</span>
+                <span>{error}</span>
               </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label className="block text-xs font-medium text-zinc-400 mb-2">
-                  Dirección de wallet
-                </label>
-                <input
-                  type="text"
-                  placeholder="0x..."
-                  value={address}
-                  onChange={(e) => {
-                    setAddress(e.target.value);
-                    setValidationError('');
-                  }}
-                  disabled={isAuthenticating}
-                  className="w-full bg-zinc-800 border border-zinc-700 focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30 text-white placeholder-zinc-600 rounded-xl px-4 py-3 text-sm font-mono outline-none transition-all disabled:opacity-50"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-
-                {/* Inline valid indicator */}
-                {address.length > 10 && addressIsValid && (
-                  <div className="flex items-center gap-1.5 mt-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                    <span className="text-xs text-emerald-400 font-mono">
-                      {address.trim().slice(0, 8)}…{address.trim().slice(-6)}
-                    </span>
-                  </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={handleRetry}
+                  className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Try again
+                </button>
+                {error.includes('Install') && (
+                  <a
+                    href="https://metamask.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 transition-colors"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Install MetaMask
+                  </a>
                 )}
               </div>
+            </div>
+          )}
 
-              <button
-                type="submit"
-                disabled={isAuthenticating}
-                className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-600/50 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-violet-600/20 hover:shadow-violet-600/30 active:scale-[0.98]"
-              >
-                {isAuthenticating ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Conectando…</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Conectar</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
+          {/* Connector buttons */}
+          {!isBusy && step !== 'done' && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-2.5">
 
-          <p className="text-center text-zinc-700 text-xs mt-6">
-            Al conectar aceptás los Términos de Servicio
+              {connectors.length === 0 ? (
+                <div className="text-center text-zinc-500 text-sm py-4 space-y-3">
+                  <p>No wallet connectors available.</p>
+                  <a
+                    href="https://metamask.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-violet-400 hover:underline"
+                  >
+                    Install MetaMask <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              ) : (
+                connectors.map((connector) => {
+                  const isThisConnecting = connectingId === connector.id && isBusy;
+                  const displayName =
+                    connector.name === 'Injected' ? 'Browser Wallet' : connector.name;
+
+                  return (
+                    <button
+                      key={connector.id}
+                      onClick={() => handleConnect(connector)}
+                      disabled={isBusy}
+                      className="w-full flex items-center gap-4 bg-zinc-800 hover:bg-zinc-700/80 disabled:opacity-50 disabled:cursor-not-allowed border border-zinc-700/60 hover:border-zinc-600 rounded-xl px-4 py-3.5 transition-all text-left"
+                    >
+                      <div className="flex-shrink-0 w-7 flex items-center justify-center">
+                        {isThisConnecting
+                          ? <Loader2 className="h-5 w-5 animate-spin text-violet-400" />
+                          : <ConnectorIcon name={connector.name} />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-white">{displayName}</div>
+                        <div className="text-xs text-zinc-500 truncate">
+                          {connectorDescription(connector.name)}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+
+              {/* Flow steps */}
+              <div className="pt-1 border-t border-zinc-800 text-xs text-zinc-600 space-y-1 px-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-4 h-4 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] font-mono flex-shrink-0">1</span>
+                  Connect wallet provider
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-4 h-4 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] font-mono flex-shrink-0">2</span>
+                  Sign authentication message
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-4 h-4 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] font-mono flex-shrink-0">3</span>
+                  Session started — no transaction required
+                </div>
+              </div>
+            </div>
+          )}
+
+          <p className="text-center text-zinc-700 text-xs leading-relaxed">
+            Your private key never leaves your wallet.
+            <br />
+            CryptoAgent never asks for your seed phrase.
           </p>
+
         </div>
       </main>
     </div>

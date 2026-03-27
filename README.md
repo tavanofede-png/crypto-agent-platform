@@ -83,27 +83,33 @@ This starts all services in parallel via Turborepo:
 
 > **Dev mode**: If wallet signing fails, a mock signature is automatically used.
 
-### 2. Credits & Payments
-- Every agent creation costs **50 credits**
-- In development, use the **Add 1000 Credits** button on the Agents page
-- In production, users pay via USDC/USDT to the configured recipient address
-- POST `/api/payments/confirm` with `txHash` to unlock credits
+### 2. Direct Payment for Agent Creation
+- Every agent creation requires a **direct crypto payment** to the treasury
+- The exact price is configured via `AGENT_CREATION_PRICE` + `AGENT_CREATION_TOKEN_*` env vars
+- In development, use the **Mock Pay** button in the payment modal (dev only)
+- In production, user sends ETH/ERC-20 to the treasury address — backend detects it via viem
+- No credits, no balance, no top-up flow — one payment, one agent
 
 ### 3. Creating an Agent
 1. Click **New Agent**
 2. Choose: name, framework (ZeroClaw/OpenClaw), model, skill template
 3. Optionally write a custom SKILL.md
-4. Submit → agent is created in DB → provisioning job is queued
+4. Submit → **AgentCreationOrder** is created + **PaymentSession** is opened
+5. User pays from wallet (or clicks Mock Pay in dev)
+6. Backend confirms payment → worker provisions the agent
 
 ### 4. Agent Runtime Flow
 ```
-Worker picks up "provision" job
-  └─> POST /agents/:id/start  (runtime)
-       └─> Creates /workspaces/{agentId}/
-            ├── SKILL.md      (agent identity & skills)
-            ├── config.toml   (model, temperature, etc.)
-            └── memory.json   (conversation history)
-  └─> Agent status → RUNNING
+Payment confirmed
+  └─> Worker picks up "provision-from-order" job
+       └─> Creates Agent record in DB
+       └─> POST /agents/:id/start  (runtime)
+            └─> Creates /workspaces/{agentId}/
+                 ├── SKILL.md      (agent identity & skills)
+                 ├── config.toml   (model, temperature, etc.)
+                 └── memory.json   (conversation history)
+       └─> Agent status → RUNNING
+       └─> AgentCreationOrder status → COMPLETED
 ```
 
 ### 5. Real-Time Chat
@@ -141,20 +147,25 @@ GET    /api/agents/:id/logs      → agent logs
 GET    /api/agents/:id/sessions  → chat sessions
 ```
 
+### Agent Orders (create-agent flow)
+```
+POST /api/agent-orders               → create order + payment session
+GET  /api/agent-orders               → list user orders
+GET  /api/agent-orders/:id           → poll status (includes paymentSession)
+POST /api/agent-orders/:id/mock-pay  → dev-only instant confirm
+```
+
 ### Payments
 ```
-GET  /api/payments/info          → payment config
-POST /api/payments/initiate      → start a payment
-POST /api/payments/confirm       → confirm tx hash
-POST /api/payments/mock-confirm  → dev-only mock
-GET  /api/payments/transactions  → user transactions
+GET  /api/payments/info          → treasury address + supported chains/tokens
 ```
 
 ### WebSocket Events (`/chat` namespace)
 ```
 emit:
   join-agent     agentId
-  new-session    agentId → { id, agentId }
+  new-session    agentId → { id, agentId, messages[] }  (latest session + history)
+  new-chat       agentId → { id, agentId, messages[] }  (force new session)
   send-message   { agentId, sessionId, content }
 
 on:
@@ -177,8 +188,9 @@ on:
 | `ANTHROPIC_API_KEY` | Anthropic API key | — |
 | `RUNTIME_URL` | Runtime service URL | `http://localhost:3002` |
 | `WORKSPACE_BASE` | Agent workspace dir | `/tmp/workspaces` |
-| `PAYMENT_RECIPIENT_ADDRESS` | Crypto payment address | — |
-| `CREDITS_PER_DOLLAR` | Credits/USD ratio | `100` |
+| `TREASURY_ADDRESS` | Wallet that receives payments | — |
+| `AGENT_CREATION_PRICE` | Price per agent (human-readable) | `0.005` |
+| `AGENT_CREATION_TOKEN_SYMBOL` | Payment token symbol | `ETH` |
 | `NEXT_PUBLIC_API_URL` | Frontend → API URL | `http://localhost:3001` |
 | `NEXT_PUBLIC_WS_URL` | Frontend → WS URL | `http://localhost:3001` |
 

@@ -12,6 +12,7 @@ crypto-agent-platform/
 ├── apps/
 │   ├── api/                       NestJS REST + WebSocket API (port 3001)
 │   │   ├── src/
+│   │   │   ├── agent-orders/      Create-agent flow: order + payment session
 │   │   │   ├── agents/            Agent CRUD, BullMQ provisioning jobs
 │   │   │   ├── auth/              Wallet auth (SIWE-style nonce + JWT)
 │   │   │   ├── chain/             viem PublicClient factory + blockchain utils
@@ -25,8 +26,8 @@ crypto-agent-platform/
 │   ├── web/                       Next.js 14 App Router (port 3000)
 │   │   ├── src/
 │   │   │   ├── app/               Pages: /, /connect, /agents, /agents/[id]
-│   │   │   ├── components/        UI: ChatInterface, CreateAgentModal, PaymentSessionModal …
-│   │   │   ├── hooks/             useWallet, useChat, usePaymentSession
+│   │   │   ├── components/        ChatInterface, CreateAgentModal, AgentCard …
+│   │   │   ├── hooks/             useWallet, useChat
 │   │   │   ├── lib/               api.ts (axios client), wagmi.ts, socket.ts
 │   │   │   ├── providers/         AppProviders (WagmiProvider + QueryClientProvider)
 │   │   │   └── store/             useStore (Zustand persist)
@@ -132,15 +133,15 @@ pnpm db:generate
 # Apply the schema to your local Postgres (creates all tables)
 pnpm --filter @repo/db exec prisma migrate dev --name init
 
-# Seed demo data (user, agents, payment session, credit ledger)
+# Seed demo data (demo user + 3 agents + completed order)
 pnpm db:seed
 ```
 
 After seeding you will have:
-- **Demo user** `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` with **500 credits**
+- **Demo user** `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`
 - **3 agents**: Crypto Research Bot (STOPPED), Trading Assistant (STOPPED), Smart Contract Dev (RUNNING)
-- **1 confirmed payment session** + credit ledger entry
-- **Mock nonce**: `dev-fixed-nonce` (allows instant sign-in without a real wallet)
+- **1 completed AgentCreationOrder** with a confirmed PaymentSession
+- **Mock nonce**: `dev-fixed-nonce` (allows instant sign-in)
 
 ### 5 — Run all services in development mode
 
@@ -171,25 +172,38 @@ pnpm dev
 
 ---
 
-## Mock Payment Mode
+## Mock Payment Mode (Dev Only)
 
-The mock payment endpoint bypasses all blockchain interaction and
-instantly adds credits to the authenticated user.
+Blockchain payment detection requires a real RPC URL and treasury wallet.
+For local development, use the **mock pay** endpoint instead:
 
-**API call:**
 ```bash
-curl -X POST http://localhost:3001/api/payments/mock-confirm \
+# 1. Create an agent order (returns orderId + paymentSession)
+curl -X POST http://localhost:3001/api/agent-orders \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <your-jwt>" \
-  -d '{ "amount": 10 }'
-# → { "creditsAwarded": 1000, "newBalance": 1500 }
+  -d '{
+    "name": "Test Agent",
+    "framework": "ZEROCLAW",
+    "model": "gpt-4o",
+    "skillTemplate": "research"
+  }'
+
+# 2. Instantly confirm payment (dev only)
+curl -X POST http://localhost:3001/api/agent-orders/<orderId>/mock-pay \
+  -H "Authorization: Bearer <your-jwt>"
+# → { "success": true, "txHash": "0xmock..." }
+
+# 3. Poll until provisioned
+curl http://localhost:3001/api/agent-orders/<orderId> \
+  -H "Authorization: Bearer <your-jwt>"
+# → { "status": "COMPLETED", "agentId": "..." }
 ```
 
-`amount` is in USD; credits are awarded at `CREDITS_PER_DOLLAR` (default 100).
 This endpoint returns **400** when `NODE_ENV=production`.
 
-**In the UI:** on the `/agents` page a **"Add 1000 Credits"** button appears
-in development mode (top-right area). Click it to top-up without a wallet.
+**In the UI:** the payment modal shows a **"Mock Pay"** button (dev mode) below
+the treasury address. Click it to skip the real transaction.
 
 ---
 
@@ -231,33 +245,28 @@ This script exercises every API endpoint in order and prints pass/fail for each:
   ✅ [1]  API is reachable
   ✅ [2]  GET /api/auth/nonce
   ✅ [3]  POST /api/auth/verify (mock signature)
-  ✅ [4]  POST /api/payments/mock-confirm  →  +1000 credits → balance 1500
-  ✅ [5]  GET /api/auth/me                →  credits = 1500
-  ✅ [6]  GET /api/payments/history       →  2 ledger entries, 1 sessions
-  ✅ [7]  POST /api/payments/session      →  id = clxxx…, status = PENDING
-  ✅ [8]  GET /api/payments/session/:id   →  status = PENDING
-  ✅ [9]  POST /api/agents                →  id = clyyy…, status = PROVISIONING
-  ⏳ Waiting for agent to provision…
-  ✅ [10] Agent provisioned               →  status = RUNNING
-  ✅ [11] GET /api/agents/:id/logs        →  3 log entries
-  ✅ [12] Runtime workspace created       →  agent clyyy…
+  ✅ [4]  GET /api/auth/me          →  wallet = 0xf39Fd6e51a…
+  ✅ [5]  POST /api/agent-orders    →  id=clxxx… status=AWAITING_PAYMENT
+  ✅ [6]  GET /api/agent-orders/:id →  session=clyyy… expires=12:34:00
+  ✅ [7]  POST …/mock-pay           →  txHash = 0xmock1a2b3c
+  ⏳ Waiting for order to reach COMPLETED…
+  ✅ [8]  Order completed           →  agentId = clzzz…
+  ✅ [9]  GET /api/agents/:id       →  name="Smoke Test Agent" status=RUNNING
+  ✅ [10] GET /api/agents/:id/logs  →  3 log entries
+  ✅ [11] Runtime reachable         →  http://localhost:3002/health
 ```
 
 ---
 
 ## Manual End-to-End Happy Path
 
-This is the full user flow through the browser:
-
 ### Step 1 — Connect wallet
 
 1. Open **http://localhost:3000/connect**
-2. Click **MetaMask** (or any injected wallet)
-3. Approve the connection in your wallet extension
-4. A "Sign in to Crypto Agent Platform" message appears — approve it
-5. You are redirected to **/agents**
+2. Enter your wallet address (e.g. `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`)
+3. Click **Conectar** — you are redirected to **/agents**
 
-> **No wallet?** Use the mock auth path:
+> **Via curl (for API-only testing):**
 > ```bash
 > # Get a nonce
 > curl http://localhost:3001/api/auth/nonce/0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
@@ -269,55 +278,47 @@ This is the full user flow through the browser:
 > # Copy the accessToken from the response
 > ```
 
-### Step 2 — Add credits (mock payment)
+### Step 2 — Create an agent order
 
-1. On **/agents**, click the **"Add 1000 Credits"** button (dev mode, top right)
-2. The page refreshes with **1000 credits** shown in the top navbar
-
-### Step 3 — Create a payment session (real flow test)
-
-1. Click **"New Agent"** → in the modal, if credits < 50 you see the "Buy Credits" banner
-2. Click **"Buy Credits with Crypto"**
-3. The `PaymentSessionModal` opens — it shows:
-   - Treasury address (from `TREASURY_ADDRESS` env)
-   - Expected amount
+1. Click **"New Agent"**
+2. Fill in name, framework, model, and skill template
+3. Click **"Continue to Payment"** — the payment modal appears immediately with:
+   - Treasury address to send to
+   - Exact amount required
    - Expiry timer
-4. Click **"Send from Wallet"** to send via MetaMask (Sepolia only for dev)
-   — OR — use the mock confirm button to skip on-chain
+   - Your wallet address (for the "send from this wallet" reminder)
 
-### Step 4 — Create an agent
+### Step 3 — Pay
 
-1. Click **"New Agent"** (with ≥ 50 credits)
-2. Fill in:
-   - **Name**: `My Research Bot`
-   - **Framework**: `ZeroClaw`
-   - **Model**: `GPT-4o`
-   - **Skill Template**: `Research Agent`
-3. Click **"Create Agent (50 credits)"**
-4. The modal transitions to the spinning provisioning state
-5. After ~3 seconds, you are redirected to **/agents** and see the agent card
+**Mock pay (dev):** click **"Mock Pay"** in the modal — payment is instantly confirmed.
 
-### Step 5 — Open the agent chat
+**Real payment (with Sepolia configured):** send the exact ETH amount from your connected
+wallet to the treasury address shown. The backend watcher detects it automatically.
 
-1. Click the agent card to open **/agents/[id]**
-2. Status dot should turn **green (RUNNING)** within a few seconds
-3. If still **amber (PROVISIONING)**, wait — the worker provisions in the background
+### Step 4 — Wait for provisioning
 
-### Step 6 — Send a message
+The modal polls every 4 seconds and transitions through:
+```
+AWAITING_PAYMENT → PAYMENT_DETECTED → PAYMENT_CONFIRMED → PROVISIONING → COMPLETED
+```
 
-1. Type in the chat input: **"What is Uniswap v3 concentrated liquidity?"**
-2. Press Enter
-3. You should see:
-   - The message sent (right-aligned, violet bubble)
-   - A typing indicator (three dots)
-   - The streaming response (left-aligned, dark bubble, text appearing word-by-word)
-4. After the response completes, the token count appears beneath the bubble
+On `COMPLETED`, you are automatically redirected to the agent chat page.
+
+### Step 5 — Chat
+
+1. Status dot turns **green (RUNNING)** once provisioned
+2. Type a message — press Enter to send
+3. See a streaming response from the LLM
+
+### Step 6 — Edit SKILL.md
+
+1. Click **Settings** on the agent card (or in the sub-header)
+2. Go to the **SKILL.md** tab
+3. Edit the prompt and click **Save** — changes take effect on the next message
 
 ---
 
 ## Local Smoke Test Checklist
-
-Use this checklist to verify a fresh local setup end-to-end:
 
 ### Infrastructure
 - [ ] `docker compose ps` shows `cap_postgres` and `cap_redis` as **healthy**
@@ -326,35 +327,30 @@ Use this checklist to verify a fresh local setup end-to-end:
 ### API
 - [ ] `curl http://localhost:3001/api/auth/nonce/0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` returns `{ "nonce": "..." }`
 - [ ] `POST /api/auth/verify` with `signature: "0xmockdev"` returns `{ accessToken, user }`
-- [ ] `GET /api/auth/me` with Bearer token returns user object with `credits`
-- [ ] `POST /api/payments/mock-confirm { amount: 10 }` returns `{ creditsAwarded: 1000 }`
-- [ ] `POST /api/agents` creates an agent and returns status `PROVISIONING`
-- [ ] `GET /api/agents/:id` eventually shows status `RUNNING`
-- [ ] `GET /api/agents/:id/logs` returns provisioning log entries
+- [ ] `GET /api/auth/me` with Bearer token returns `{ id, walletAddress, createdAt }`
+- [ ] `POST /api/agent-orders` returns `{ id, status: "AWAITING_PAYMENT", paymentSession: { ... } }`
+- [ ] `POST /api/agent-orders/:id/mock-pay` returns `{ success: true, txHash }`
+- [ ] `GET /api/agent-orders/:id` eventually shows `status: "COMPLETED"` with `agentId`
+- [ ] `GET /api/agents/:id` shows the created agent
 
 ### Runtime
 - [ ] `curl http://localhost:3002/health` returns `{ "status": "ok" }`
 - [ ] `POST /agents/:id/start` creates workspace files in `WORKSPACE_BASE`
-- [ ] `ls /tmp/cap-workspaces/<agentId>/` shows `SKILL.md`, `config.toml`, `memory.json`
+- [ ] `ls $WORKSPACE_BASE/<agentId>/` shows `SKILL.md`, `config.toml`, `memory.json`
 
 ### Worker
 - [ ] Worker terminal shows `✅ Worker ready, listening on queue: agents`
-- [ ] After creating an agent via API, worker terminal shows `provision` job completed
+- [ ] After mock-pay, worker terminal shows `provision-from-order` job completed
 
 ### Frontend
 - [ ] http://localhost:3000 redirects to `/connect`
-- [ ] Wallet connection flow completes (step indicator advances: Connect → Sign → Launch)
-- [ ] Credits shown in navbar after mock payment
-- [ ] Create Agent modal opens and shows credit check
-- [ ] Agent card appears on dashboard after creation
+- [ ] Entering wallet address and clicking Conectar works
+- [ ] Agent dashboard shows agents from seed
+- [ ] Create Agent modal shows payment details immediately (no 4-second blank)
+- [ ] Mock Pay button completes provisioning and redirects to chat
 - [ ] Chat page loads and socket status shows **Connected** (green dot)
 - [ ] Sending a message produces a streaming response
-
-### Payment session flow
-- [ ] `POST /api/payments/session { purpose: "CREDIT_TOPUP", chainId: 11155111 }` returns `{ id, status: "PENDING", treasuryAddress, displayAmount }`
-- [ ] `GET /api/payments/session/:id` returns session with correct fields
-- [ ] `GET /api/payments/history` returns `{ ledger: [...], sessions: [...] }`
-- [ ] Returning the same `POST /api/payments/session` request returns the **same session** (deduplication)
+- [ ] Reopening the agent page restores the previous chat session
 
 ---
 
@@ -386,9 +382,9 @@ pnpm smoke-test
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | `CHAIN_*_RPC_URL is required` on API start | Blockchain watcher enabled without RPC | Set `ACTIVE_CHAINS=` (empty) in `.env` |
-| `TREASURY_ADDRESS env var is not set` | Treasury not configured | Set `TREASURY_ADDRESS=0xAny` in `.env` (can be any address for dev) |
+| `TREASURY_ADDRESS env var is not set` | Treasury not configured | Set `TREASURY_ADDRESS=0xAny` in `.env` |
 | Agent stuck at `PROVISIONING` | Worker not running | Run `pnpm --filter @repo/worker dev` |
 | Chat socket shows `Disconnected` | API WebSocket not accessible | Check CORS — `FRONTEND_URL` must match `http://localhost:3000` |
-| `Invalid signature` on auth | Wallet refused signing | The mock path uses `0xmock…` prefix — accepted in `NODE_ENV=development` |
-| `Insufficient credits` error | Not enough credits | Click "Add 1000 Credits" (dev button) or run `pnpm smoke-test` |
+| `Invalid signature` on auth | Wrong signature format | Mock path accepts any signature starting with `0xmock` in `NODE_ENV=development` |
+| Payment modal shows blank initially | Order created without session | Fixed — `createOrder` now returns `paymentSession` immediately |
 | Runtime 404 for agent workspace | Runtime lost in-memory state | Click "Restart" on the agent — worker re-provisions the workspace |

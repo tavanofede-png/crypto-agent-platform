@@ -20,12 +20,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChainService } from '../chain/chain.service';
-import { CreatePaymentSessionDto } from './dto/create-session.dto';
 
 @Injectable()
 export class PaymentSessionService {
@@ -45,70 +43,6 @@ export class PaymentSessionService {
     private readonly config: ConfigService,
   ) {
     this.sessionTtlMinutes = this.config.get<number>('PAYMENT_SESSION_TTL_MINUTES', 15);
-  }
-
-  // ─── Session creation ──────────────────────────────────────
-
-  async createSession(dto: CreatePaymentSessionDto, userId: string) {
-    if (!this.chainService.isChainSupported(dto.chainId)) {
-      throw new BadRequestException(`Chain ${dto.chainId} is not supported`);
-    }
-
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
-
-    const chainCfg = this.chainService.getChainConfig(dto.chainId);
-    const treasury  = this.chainService.getTreasuryAddress();
-
-    let tokenSymbol: string;
-    let tokenDecimals: number;
-    let tokenAddress: string | null = null;
-
-    if (dto.tokenAddress) {
-      const tokenCfg = this.chainService.getTokenConfig(dto.chainId, dto.tokenAddress);
-      if (!tokenCfg) {
-        throw new BadRequestException(
-          `Token ${dto.tokenAddress} is not supported on chain ${dto.chainId}`,
-        );
-      }
-      tokenSymbol  = tokenCfg.symbol;
-      tokenDecimals = tokenCfg.decimals;
-      tokenAddress  = this.chainService.checksumAddress(dto.tokenAddress);
-    } else {
-      tokenSymbol  = chainCfg.nativeSymbol;
-      tokenDecimals = chainCfg.nativeDecimals;
-    }
-
-    const displayAmount  = dto.amount ?? '5.00';
-    const expectedAmount = this.chainService
-      .toSmallestUnit(displayAmount, tokenDecimals)
-      .toString();
-    const expiresAt = new Date(Date.now() + this.sessionTtlMinutes * 60_000);
-
-    const session = await this.prisma.paymentSession.create({
-      data: {
-        userId,
-        walletAddress: user.walletAddress,
-        chainId: dto.chainId,
-        tokenAddress,
-        tokenSymbol,
-        tokenDecimals,
-        expectedAmount,
-        displayAmount,
-        expiresAt,
-      },
-    });
-
-    this.logger.log(
-      `Session ${session.id} created for user ${userId}: ` +
-        `${displayAmount} ${tokenSymbol} on chain ${dto.chainId}`,
-    );
-
-    return {
-      ...this.formatSession(session),
-      treasuryAddress: treasury,
-      chainName: chainCfg.name,
-    };
   }
 
   // ─── Session lookup ────────────────────────────────────────

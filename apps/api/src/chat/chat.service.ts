@@ -15,18 +15,53 @@ export class ChatService {
     this.runtimeUrl = this.config.get<string>('RUNTIME_URL', 'http://localhost:3002');
   }
 
-  async getOrCreateSession(agentId: string) {
+  async getOrCreateSession(agentId: string): Promise<{ id: string; agentId: string; title: string | null; createdAt: Date; messages: Array<{ id: string; role: string; content: string; tokensUsed: number | null; createdAt: Date }> }> {
     const agent = await this.prisma.agent.findUnique({ where: { id: agentId } });
     if (!agent) throw new NotFoundException(`Agent ${agentId} not found`);
+
+    // Return the most recent session with its last 40 messages.
+    // Create a new session only if none exists yet.
+    const existing = await this.prisma.chatSession.findFirst({
+      where: { agentId },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          take: 40,
+          select: { id: true, role: true, content: true, tokensUsed: true, createdAt: true },
+        },
+      },
+    });
+
+    if (existing) return existing;
 
     const session = await this.prisma.chatSession.create({
       data: {
         agentId,
         title: `Chat ${new Date().toLocaleDateString()}`,
       },
+      include: {
+        messages: true,
+      },
     });
 
-    return session;
+    return { ...session, messages: [] };
+  }
+
+  async createNewSession(agentId: string) {
+    return this.prisma.chatSession.create({
+      data: {
+        agentId,
+        title: `Chat ${new Date().toLocaleDateString()}`,
+      },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          take: 40,
+          select: { id: true, role: true, content: true, tokensUsed: true, createdAt: true },
+        },
+      },
+    });
   }
 
   async saveUserMessage(sessionId: string, content: string) {

@@ -53,7 +53,6 @@ enum PaymentSessionStatus {
 model User {
   id            String   @id @default(cuid())
   walletAddress String   @unique @map("wallet_address")
-  nonce         String   @default(cuid())
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -62,6 +61,25 @@ model User {
   paymentSessions     PaymentSession[]
 
   @@map("users")
+}
+
+/// One-time authentication challenge.
+/// Created by POST /auth/nonce, consumed by POST /auth/verify.
+/// Expired records are cleaned up on each nonce request.
+model AuthNonce {
+  id            String    @id @default(cuid())
+  walletAddress String    @map("wallet_address")
+  nonce         String    @unique
+  /// The exact human-readable message the frontend must ask the wallet to sign.
+  message       String    @db.Text
+  expiresAt     DateTime  @map("expires_at")
+  /// Set to the timestamp of successful use — prevents replay.
+  usedAt        DateTime? @map("used_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([walletAddress])
+  @@index([expiresAt])
+  @@map("auth_nonces")
 }
 
 model Agent {

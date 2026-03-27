@@ -15,7 +15,7 @@ const features = [
   {
     icon: Zap,
     title: 'Crypto Payments',
-    description: 'Pay with USDC/USDT via your Web3 wallet. Credits unlock agent creation',
+    description: 'Pay directly with ETH or ERC-20 tokens from your wallet. One payment, one agent — no credits.',
   },
   {
     icon: Shield,
@@ -100,7 +100,7 @@ export default function LandingPage() {
         <div className="flex gap-8 mt-16 text-center">
           {[
             { label: 'Frameworks', value: '2' },
-            { label: 'LLM Models', value: '5+' },
+            { label: 'LLM Models', value: '4' },
             { label: 'Skill Templates', value: '3' },
           ].map(({ label, value }) => (
             <div key={label}>
