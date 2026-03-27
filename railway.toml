@@ -1,0 +1,13 @@
+# Railway config-as-code (servicio vinculado: api)
+# Otros servicios (web, worker, runtime): crearlos en el dashboard y duplicar
+# la idea con su Dockerfile o usar monorepo docs de Railway.
+#
+# https://docs.railway.app/reference/config-as-code
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/api/Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

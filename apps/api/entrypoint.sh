@@ -4,7 +4,8 @@
 set -e
 
 echo "[entrypoint] Running database migrations..."
-npx prisma migrate deploy --schema=/app/packages/db/prisma/schema.prisma
+# Use workspace Prisma (5.x). Plain `npx prisma` can resolve to Prisma 7+ and break the schema.
+pnpm --filter @repo/db exec prisma migrate deploy --schema=/app/packages/db/prisma/schema.prisma
 
 echo "[entrypoint] Starting API server..."
 exec node apps/api/dist/main

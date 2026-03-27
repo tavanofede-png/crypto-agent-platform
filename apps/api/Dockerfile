@@ -28,7 +28,8 @@ COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 
 # Entrypoint runs `prisma migrate deploy` then starts the server
 COPY apps/api/entrypoint.sh ./entrypoint.sh
-RUN chmod +x ./entrypoint.sh
+# Strip Windows CRLF so the script runs on Linux (Railway/Docker).
+RUN sed -i 's/\r$//' ./entrypoint.sh && chmod +x ./entrypoint.sh
 
 EXPOSE 3001
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
