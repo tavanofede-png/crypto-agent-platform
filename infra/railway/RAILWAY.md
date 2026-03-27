@@ -126,3 +126,26 @@ O deja el deploy automático en cada push a `main`.
 5. Desplegar `web` con URLs públicas del API  
 
 Si algo falla, revisá **Deployments** → logs del contenedor y **Variables** faltantes.
+
+---
+
+## 9. Sobre el email “Deploy Crashed!” de Railway
+
+Ese correo es **genérico**: no dice la causa. Siempre mirá **Deploy logs** del servicio.
+
+Errores típicos de este proyecto:
+
+| Síntoma en logs | Qué hacer |
+|-----------------|-----------|
+| `CHAIN_*_RPC_URL is required` | Ya corregido en código: sin `ACTIVE_CHAINS` no hace falta RPC. Si definís `ACTIVE_CHAINS=11155111`, tenés que agregar `CHAIN_11155111_RPC_URL` (Infura/Alchemy). |
+| `DATABASE_URL` no encontrada | Variable en el servicio **api**, no solo en Postgres. Usá referencia `${{Postgres.DATABASE_URL}}`. |
+| `ECONNREFUSED` puerto **6379** | Falta **Redis**. En el proyecto: **Add** → **Redis**, luego en **api** → Variables → `REDIS_URL` = `${{Redis.REDIS_URL}}` (nombre del servicio según Railway). |
+| `JWT_SECRET` / auth | Definí `JWT_SECRET` y `JWT_REFRESH_SECRET` en **api**. |
+
+Tras agregar Redis en el dashboard, en la carpeta del repo (con `api` linkeado):
+
+```bash
+railway variable set "REDIS_URL=`${{Redis.REDIS_URL}}"
+```
+
+(Ajustá `Redis` si renombraste el plugin.) Luego **Redeploy** del servicio `api`.
